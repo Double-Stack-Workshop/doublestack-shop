@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: double-stack-app
+    ports:
+      - "8000:8001"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/repos:/app/repos
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

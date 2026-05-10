@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重置密码 - 双栈商店</title>
+    <link rel="stylesheet" href="forgot.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <div class="logo-section">
+                <img src="/src/images/logo.png" alt="Logo" class="logo">
+                <p>Double Stack Store</p>
+            </div>
+            
+            <h2>重置密码</h2>
+            <p class="subtitle">请输入管理员密码验证身份，然后设置新密码</p>
+            
+            <form id="forgotForm" class="login-form">
+                <div class="form-group">
+                    <label for="adminPassword">管理员密码</label>
+                    <input type="password" id="adminPassword" placeholder="请输入管理员密码" required>
+                    <small class="hint">需要管理员密码验证身份</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="newPassword">新密码</label>
+                    <input type="password" id="newPassword" placeholder="请输入新密码" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirmPassword">确认密码</label>
+                    <input type="password" id="confirmPassword" placeholder="请确认新密码" required>
+                </div>
+                
+                <div id="errorMessage" class="error-message"></div>
+                <div id="successMessage" class="success-message"></div>
+                
+                <button type="submit" class="login-btn">重置密码</button>
+            </form>
+            
+            <p class="register-link">
+                想起密码了？<a href="/">立即登录</a>
+            </p>
+        </div>
+    </div>
+    
+    <script src="forgot.js"></script>
+</body>
+</html>

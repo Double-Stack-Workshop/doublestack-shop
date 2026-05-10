@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 仓库管理</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="./repository.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <aside class="sidebar">
+            <button id="sidebarToggle" class="sidebar-toggle">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <div class="sidebar-header">
+            <div class="logo">
+                <img src="/src/images/logo.png" alt="双栈商店">
+                <span>双栈商店</span>
+            </div>
+        </div>
+            
+            <nav class="sidebar-nav">
+                <ul>
+                    <li>
+                        <a href="../dashboard/dashboard.html">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>仪表盘</span>
+                        </a>
+                    </li>
+                    <li class="active">
+                        <a href="repository.html">
+                            <i class="fab fa-github"></i>
+                            <span>仓库管理</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../deploy/deploy.html">
+                            <i class="fas fa-rocket"></i>
+                            <span>应用部署</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../container/container.html">
+                            <i class="fas fa-boxes"></i>
+                            <span>容器管理</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../settings/settings.html">
+                            <i class="fas fa-cog"></i>
+                            <span>系统设置</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>退出登录</span>
+                </button>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>仓库管理</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <section class="search-bar">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="搜索仓库...">
+                    </div>
+                    <div class="filter-box">
+                        <select id="filterSelect">
+                            <option value="all">全部状态</option>
+                            <option value="active">已同步</option>
+                            <option value="syncing">同步中</option>
+                            <option value="error">同步失败</option>
+                        </select>
+                    </div>
+                    <button id="addRepoBtn" class="add-btn">
+                        <i class="fas fa-plus"></i>
+                        <span>添加仓库</span>
+                    </button>
+                </section>
+                
+                <section class="repo-list">
+                    <div class="repo-grid">
+                        <div class="empty-state">
+                            <i class="fab fa-github"></i>
+                            <p>暂无仓库，点击右上角添加仓库</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+        
+        <div id="addRepoModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>添加仓库</h2>
+                    <button class="modal-close" onclick="closeModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="addRepoForm" class="modal-form">
+                    <div class="form-group">
+                        <label for="repoName">仓库名称 <span class="optional">(可选)</span></label>
+                        <input type="text" id="repoName" placeholder="自定义仓库名称">
+                    </div>
+                    <div class="form-group">
+                        <label for="repoUrl">仓库地址</label>
+                        <input type="text" id="repoUrl" placeholder="https://github.com/username/repo">
+                    </div>
+                    <div class="form-group">
+                        <label for="branch">分支名称</label>
+                        <input type="text" id="branch" placeholder="main" value="main">
+                    </div>
+                    <div class="form-group">
+                        <label for="localPath">本地路径</label>
+                        <input type="text" id="localPath" placeholder="/data/repos">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-cancel" onclick="closeModal()">取消</button>
+                        <button type="submit" class="btn-submit">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script src="./repository.js"></script>
+</body>
+</html>

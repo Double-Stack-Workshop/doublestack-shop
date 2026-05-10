@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 仪表盘</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/dashboard/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard-container" id="appContainer">
+        <!-- 侧边栏将通过JS加载 -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>欢迎回来，管理员</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                            <div class="user-avatar">
+                                <img src="/src/images/logo.png" alt="用户头像">
+                            </div>
+                            <span class="username" id="currentUsername">加载中...</span>
+                        </div>
+                </div>
+            </header>
+            
+            <section class="stats-cards">
+                <div class="card" id="repoCountCard">
+                    <div class="card-icon bg-blue">
+                        <i class="fab fa-github"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>仓库数量</h3>
+                        <p class="card-value" id="repoCount">0</p>
+                    </div>
+                </div>
+                
+                <div class="card" id="deployedAppsCard">
+                    <div class="card-icon bg-green">
+                        <i class="fas fa-rocket"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>已部署应用</h3>
+                        <p class="card-value" id="deployedAppsCount">0</p>
+                    </div>
+                </div>
+                
+                <div class="card" id="containerCountCard">
+                    <div class="card-icon bg-orange">
+                        <i class="fas fa-boxes"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>运行中容器</h3>
+                        <p class="card-value" id="containerCount">0</p>
+                    </div>
+                </div>
+                
+                <div class="card" id="successRateCard">
+                    <div class="card-icon bg-purple">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>部署成功率</h3>
+                        <p class="card-value" id="successRate">0%</p>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="quick-actions">
+                <h2>快捷操作</h2>
+                <div class="action-grid">
+                    <button class="action-btn" onclick="navigateTo('repository')">
+                        <i class="fab fa-github"></i>
+                        <span>仓库管理</span>
+                    </button>
+                    <button class="action-btn" onclick="navigateTo('deploy')">
+                        <i class="fas fa-rocket"></i>
+                        <span>应用部署</span>
+                    </button>
+                    <button class="action-btn" onclick="navigateTo('container')">
+                        <i class="fas fa-boxes"></i>
+                        <span>容器管理</span>
+                    </button>
+                    <button class="action-btn" onclick="navigateTo('settings')">
+                        <i class="fas fa-cog"></i>
+                        <span>系统设置</span>
+                    </button>
+                </div>
+            </section>
+            
+            <section class="recent-activity">
+                <h2>最近部署记录</h2>
+                <div class="activity-list" id="deploymentList">
+                    <div class="activity-item empty">
+                        <div class="activity-icon info">
+                            <i class="fas fa-info"></i>
+                        </div>
+                        <div class="activity-content">
+                            <h4>暂无部署记录</h4>
+                            <p>通过应用部署页面部署应用后，记录将显示在这里</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="./dashboard.js"></script>
+</body>
+</html>

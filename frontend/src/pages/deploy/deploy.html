@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 应用部署</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/deploy/deploy.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="deploy-container" id="appContainer">
+        <!-- 侧边栏将通过JS加载 -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>应用部署</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                            <div class="user-avatar">
+                                <img src="/src/images/logo.png" alt="用户头像">
+                            </div>
+                            <span class="username" id="currentUsername">加载中...</span>
+                        </div>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <div class="select-section">
+                    <div class="section-header">
+                        <h2>选择部署配置</h2>
+                    </div>
+                    <div class="select-row">
+                        <div class="select-item">
+                            <label for="repoSelect">选择仓库</label>
+                            <select id="repoSelect" class="form-select">
+                                <option value="">请选择仓库</option>
+                            </select>
+                        </div>
+                        <div class="select-item">
+                            <label for="fileSelect">选择 YML 文件</label>
+                            <div class="search-select-wrapper">
+                                <input type="text" id="fileSearch" class="form-input search-input" placeholder="搜索文件..." style="display: none;">
+                                <select id="fileSelect" class="form-select">
+                                    <option value="">请先选择仓库</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mode-section" id="modeSection" style="display: none;">
+                    <div class="mode-tabs">
+                        <button id="easyModeBtn" class="mode-tab active">
+                            <i class="fas fa-smile"></i>
+                            简易模式
+                        </button>
+                        <button id="advancedModeBtn" class="mode-tab">
+                            <i class="fas fa-code"></i>
+                            高级模式
+                        </button>
+                    </div>
+                </div>
+
+                <div class="params-section" id="paramsSection" style="display: none;">
+                    <div class="section-header">
+                        <h2>配置参数提取</h2>
+                    </div>
+                    <div id="paramsTableContainer" class="params-container">
+                        <p class="empty-hint">选择一个YML文件查看配置参数</p>
+                    </div>
+                    <div class="params-actions">
+                        <button id="saveBtn" class="btn btn-primary" disabled>
+                            <i class="fas fa-save"></i>
+                            保存修改
+                        </button>
+                        <button id="deployBtn" class="btn btn-success" disabled>
+                            <i class="fas fa-rocket"></i>
+                            部署应用
+                        </button>
+                    </div>
+                </div>
+
+                <div class="editor-section" id="editorSection" style="display: none;">
+                    <div class="section-header">
+                        <h2>配置内容</h2>
+                    </div>
+                    <div class="editor-container">
+                        <textarea id="ymlEditor" class="yml-editor" placeholder="选择一个YML文件查看内容..."></textarea>
+                        <div class="editor-info">
+                            <span id="fileName">未选择文件</span>
+                            <span id="fileSize">0 KB</span>
+                            <span id="lastModified">未知</span>
+                        </div>
+                        <div class="editor-actions">
+                            <button id="saveBtn" class="btn btn-primary" disabled>
+                                <i class="fas fa-save"></i>
+                                保存修改
+                            </button>
+                            <button id="deployBtn" class="btn btn-success" disabled>
+                                <i class="fas fa-rocket"></i>
+                                部署应用
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="deploy-output" id="outputSection" style="display: none;">
+                    <div class="section-header">
+                        <h2>部署日志</h2>
+                        <button id="clearLogBtn" class="btn btn-secondary">
+                            <i class="fas fa-trash"></i>
+                            清空日志
+                        </button>
+                    </div>
+                    <div id="logContainer" class="log-container">
+                        <div class="log-item info">
+                            <i class="fas fa-info-circle"></i>
+                            <span>准备就绪，请选择YML文件进行部署</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/src/pages/deploy/deploy.js"></script>
+</body>
+</html>

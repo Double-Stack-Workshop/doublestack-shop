@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 系统设置</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <aside class="sidebar">
+            <button id="sidebarToggle" class="sidebar-toggle">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <div class="sidebar-header">
+            <div class="logo">
+                <img src="/src/images/logo.png" alt="双栈商店">
+                <span>双栈商店</span>
+            </div>
+        </div>
+            
+            <nav class="sidebar-nav">
+                <ul>
+                    <li>
+                        <a href="../dashboard/dashboard.html">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>仪表盘</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../repository/repository.html">
+                            <i class="fab fa-github"></i>
+                            <span>仓库管理</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../deploy/deploy.html">
+                            <i class="fas fa-rocket"></i>
+                            <span>应用部署</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../container/container.html">
+                            <i class="fas fa-boxes"></i>
+                            <span>容器管理</span>
+                        </a>
+                    </li>
+                    <li class="active">
+                        <a href="settings.html">
+                            <i class="fas fa-cog"></i>
+                            <span>系统设置</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>退出登录</span>
+                </button>
+            </div>
+        </aside>
+    
+    <main class="main-content">
+        <header class="top-header">
+            <div class="header-left">
+                <h1>系统设置</h1>
+            </div>
+            <div class="header-right">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <img src="/src/images/logo.png" alt="用户头像">
+                    </div>
+                    <span class="username" id="currentUsername">加载中...</span>
+                </div>
+            </div>
+        </header>
+        
+        <div class="content-area">
+            <section class="version-section">
+                <div class="version-card">
+                    <div class="version-icon">
+                        <i class="fas fa-info-circle"></i>
+                    </div>
+                    <div class="version-info">
+                        <h3>应用版本</h3>
+                        <p class="version-number" id="currentVersion">v1.0.0</p>
+                        <p class="version-date">构建时间: <span id="buildDate">2026-05-08</span></p>
+                        <div id="updateStatus" class="update-status"></div>
+                    </div>
+                    <div class="version-actions">
+                        <button id="checkUpdateBtn" class="check-update-btn" onclick="checkForUpdates()">
+                            <i class="fas fa-refresh"></i>
+                            <span>检查更新</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="user-management">
+                <div class="section-header">
+                    <h2>用户管理</h2>
+                    <button id="addUserBtn" class="add-btn">
+                        <i class="fas fa-user-plus"></i>
+                        <span>添加用户</span>
+                    </button>
+                </div>
+                
+                <div class="user-table-container">
+                    <table class="user-table">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <tr>
+                                <td colspan="3" class="empty-row">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+    
+    <div id="addUserModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>添加用户</h2>
+                <button class="modal-close" onclick="closeAddUserModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="addUserForm">
+                <div class="form-group">
+                    <label for="newUsername">用户名</label>
+                    <input type="text" id="newUsername" placeholder="请输入用户名" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">密码</label>
+                    <input type="password" id="newPassword" placeholder="请输入密码" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeAddUserModal()">取消</button>
+                    <button type="submit" class="btn-submit">添加</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="editPasswordModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>修改密码</h2>
+                <button class="modal-close" onclick="closeEditPasswordModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="editPasswordForm">
+                <input type="hidden" id="editUsername">
+                <div class="form-group">
+                    <label for="editPassword">新密码</label>
+                    <input type="password" id="editPassword" placeholder="请输入新密码" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="closeEditPasswordModal()">取消</button>
+                    <button type="submit" class="btn-submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="messageToast" class="message-toast"></div>
+    </div>
+    
+    <script src="settings.js"></script>
+</body>
+</html>

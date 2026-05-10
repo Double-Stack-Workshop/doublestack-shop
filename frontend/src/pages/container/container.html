@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 容器管理</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/container/container.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container-container" id="appContainer">
+        <!-- 侧边栏将通过JS加载 -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>容器管理</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-icon total">
+                        <i class="fas fa-boxes"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="totalCount">0</span>
+                        <span class="stat-label">总容器</span>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon running">
+                        <i class="fas fa-play"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="runningCount">0</span>
+                        <span class="stat-label">运行中</span>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon stopped">
+                        <i class="fas fa-stop"></i>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="stoppedCount">0</span>
+                        <span class="stat-label">已停止</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="containers-grid">
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>状态筛选:</label>
+                        <select id="statusFilter" onchange="filterContainers()">
+                            <option value="all">全部</option>
+                            <option value="running">运行中</option>
+                            <option value="exited">已停止</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="搜索容器名称..." onkeyup="filterContainers()">
+                    </div>
+                </div>
+
+                <div class="containers-list" id="containersList">
+                    <div class="empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <p>暂无容器数据</p>
+                        <button class="btn btn-primary" onclick="refreshContainers()">
+                            <i class="fas fa-refresh"></i>
+                            刷新数据
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <div class="modal-overlay" id="modalOverlay" style="display: none;">
+                <div class="modal" id="containerModal">
+                    <div class="modal-header">
+                        <h3 id="modalTitle">容器详情</h3>
+                        <button class="close-btn" onclick="closeModal()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="modalBody">
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeModal()">关闭</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-overlay" id="logsModalOverlay" style="display: none;">
+                <div class="modal logs-modal" id="logsModal">
+                    <div class="modal-header">
+                        <h3 id="logsModalTitle">容器日志</h3>
+                        <button class="close-btn" onclick="closeLogsModal()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body logs-body">
+                        <div class="logs-toolbar">
+                            <button class="btn btn-sm btn-primary" onclick="refreshLogs()">
+                                <i class="fas fa-refresh"></i>
+                                刷新
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="clearLogs()">
+                                <i class="fas fa-trash"></i>
+                                清空
+                            </button>
+                        </div>
+                        <pre id="logsContent" class="logs-content"></pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeLogsModal()">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="./container.js"></script>
+</body>
+</html>
