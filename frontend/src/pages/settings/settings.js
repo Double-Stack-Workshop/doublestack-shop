@@ -15,10 +15,9 @@ async function loadVersion() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    const sidebarToggle = document.getElementById('sidebarToggle');
-    const sidebar = document.querySelector('.sidebar');
-    const logoutBtn = document.getElementById('logoutBtn');
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadSidebar();
+    
     const addUserBtn = document.getElementById('addUserBtn');
     const addUserModal = document.getElementById('addUserModal');
     const addUserForm = document.getElementById('addUserForm');
@@ -27,27 +26,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!checkLogin()) return;
     loadUserInfo();
     loadVersion();
-    
-    sidebarToggle.addEventListener('click', function() {
-        sidebar.classList.toggle('collapsed');
-        const icon = sidebarToggle.querySelector('i');
-        if (sidebar.classList.contains('collapsed')) {
-            icon.classList.remove('fa-chevron-left');
-            icon.classList.add('fa-chevron-right');
-        } else {
-            icon.classList.remove('fa-chevron-right');
-            icon.classList.add('fa-chevron-left');
-        }
-    });
-    
-    logoutBtn.addEventListener('click', function() {
-        if (confirm('确定要退出登录吗？')) {
-            localStorage.removeItem('username');
-            localStorage.removeItem('is_admin');
-            localStorage.removeItem('remember');
-            window.location.href = '../login/login.html';
-        }
-    });
     
     addUserBtn.addEventListener('click', function() {
         addUserModal.classList.add('active');
@@ -132,6 +110,23 @@ document.addEventListener('DOMContentLoaded', function() {
     
     loadUsers();
 });
+
+async function loadSidebar() {
+    const response = await fetch('/src/components/sidebar/sidebar.html');
+    const sidebarHtml = await response.text();
+    const appContainer = document.getElementById('appContainer');
+    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
+    
+    const script = document.createElement('script');
+    script.src = '/src/components/sidebar/sidebar.js';
+    script.type = 'module';
+    script.onload = function() {
+        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
+            initSidebar('settings');
+        });
+    };
+    document.head.appendChild(script);
+}
 
 async function loadUsers() {
     try {

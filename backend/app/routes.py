@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from .schemas import AddRepoRequest
+from .terminal import terminal_manager
 from .version import VERSION, DOCKERHUB_REPO, BUILD_DATE
 from .services import (
     get_all_repos,
@@ -297,3 +298,29 @@ async def check_for_updates():
         "latest_version": latest_version,
         "update_available": is_update_available
     }
+
+@router.websocket("/ws/terminal")
+async def websocket_terminal(websocket: WebSocket):
+    await websocket.accept()
+
+    cols = 80
+    rows = 24
+
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            if msg.get('type') == 'resize':
+                cols = msg.get('cols', 80)
+                rows = msg.get('rows', 24)
+                break
+    except:
+        pass
+
+    try:
+        await terminal_manager.create_host_terminal(websocket, cols, rows)
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+        await websocket.close()

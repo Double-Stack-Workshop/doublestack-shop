@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y \
     git \
     docker.io \
     docker-compose \
+    procps \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .

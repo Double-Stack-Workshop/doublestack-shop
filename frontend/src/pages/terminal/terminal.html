@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 终端</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/terminal/terminal.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+</head>
+<body>
+    <div class="terminal-container" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>终端</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="terminal-section">
+                <div class="terminal-toolbar">
+                    <div class="toolbar-left">
+                        <button class="toolbar-btn" id="connectBtn" title="连接终端">
+                            <i class="fas fa-plug"></i>
+                            <span>连接</span>
+                        </button>
+                        <button class="toolbar-btn" id="disconnectBtn" title="断开连接" disabled>
+                            <i class="fas fa-power-off"></i>
+                            <span>断开</span>
+                        </button>
+                        <button class="toolbar-btn" id="clearBtn" title="清屏">
+                            <i class="fas fa-eraser"></i>
+                            <span>清屏</span>
+                        </button>
+                        <div class="connection-status" id="connectionStatus">
+                            <i class="fas fa-circle"></i>
+                            <span>未连接</span>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="toolbar-btn" id="fullscreenBtn" title="全屏">
+                            <i class="fas fa-expand"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="terminal-wrapper">
+                    <div id="terminal"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    <script type="module" src="/src/components/sidebar/sidebar.js"></script>
+    <script type="module" src="/src/pages/terminal/terminal.js"></script>
+</body>
+</html>

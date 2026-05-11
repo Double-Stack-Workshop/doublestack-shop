@@ -96,7 +96,7 @@ def generate_strong_password(length=16):
     uppercase = string.ascii_uppercase
     lowercase = string.ascii_lowercase
     digits = string.digits
-    special = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    special = "."
     
     all_chars = uppercase + lowercase + digits + special
     

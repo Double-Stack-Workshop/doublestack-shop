@@ -5,64 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>双栈商店 - 仓库管理</title>
     <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
     <link rel="stylesheet" href="./repository.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <div class="dashboard-container">
-        <aside class="sidebar">
-            <button id="sidebarToggle" class="sidebar-toggle">
-                <i class="fas fa-chevron-left"></i>
-            </button>
-            <div class="sidebar-header">
-            <div class="logo">
-                <img src="/src/images/logo.png" alt="双栈商店">
-                <span>双栈商店</span>
-            </div>
-        </div>
-            
-            <nav class="sidebar-nav">
-                <ul>
-                    <li>
-                        <a href="../dashboard/dashboard.html">
-                            <i class="fas fa-tachometer-alt"></i>
-                            <span>仪表盘</span>
-                        </a>
-                    </li>
-                    <li class="active">
-                        <a href="repository.html">
-                            <i class="fab fa-github"></i>
-                            <span>仓库管理</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="../deploy/deploy.html">
-                            <i class="fas fa-rocket"></i>
-                            <span>应用部署</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="../container/container.html">
-                            <i class="fas fa-boxes"></i>
-                            <span>容器管理</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="../settings/settings.html">
-                            <i class="fas fa-cog"></i>
-                            <span>系统设置</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-            
-            <div class="sidebar-footer">
-                <button id="logoutBtn" class="logout-btn">
-                    <i class="fas fa-sign-out-alt"></i>
-                    <span>退出登录</span>
-                </button>
-            </div>
-        </aside>
+    <div class="dashboard-container" id="appContainer">
+        <!-- 侧边栏将通过JS动态加载 -->
         
         <main class="main-content">
             <header class="top-header">

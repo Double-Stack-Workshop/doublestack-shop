@@ -10,6 +10,7 @@
 - **📊 仪表盘** - 实时统计已部署应用数量、部署成功率等关键数据
 - **🔐 用户管理** - 支持多用户注册登录，管理员密码保护
 - **🔄 版本检测** - 自动检测 Docker Hub 最新版本，支持一键更新
+- **💻 终端访问** - 内置 Web 终端，支持连接宿主主机 Linux 终端
 
 ## 系统要求
 
@@ -34,7 +35,7 @@ docker compose up -d
 
 ### 3. 访问应用
 
-打开浏览器访问：`http://localhost:20000`
+打开浏览器访问：`http://localhost:8000`
 
 默认管理员账号：`admin`
 
@@ -44,12 +45,7 @@ docker compose up -d
 
 ```bash
 # 构建镜像
-docker build -t doublestack-shop:v1.0.8 .
-
-# 推送镜像到 Docker Hub
-docker tag doublestack-shop:v1.0.8 yourusername/doublestack-shop:v1.0.8
-docker push yourusername/doublestack-shop:v1.0.8
-```
+docker build -t doublestack-shop .
 
 ## 项目结构
 
@@ -85,6 +81,7 @@ doublestack-shop/
 | v1.0.0 | 2026-05-09 | 初始版本 |
 | v1.0.7 | 2026-05-09 | 问题修复及UI优化 |
 | v1.0.8 | 2026-05-11 | 修复注册页面API路径问题，统一登录/注册/忘记密码页面样式 |
+| v1.0.9 | 2026-05-11 | 新增终端功能：支持连接宿主主机Linux终端；修复密码生成规则；统一所有页面侧边栏组件；修复终端页面布局一致性问题；修复终端横向滚动问题 |
 
 ## 许可证
 
