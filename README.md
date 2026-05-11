@@ -36,17 +36,19 @@ docker compose up -d
 
 打开浏览器访问：`http://localhost:20000`
 
-默认管理员账号：`admin` / `admin`
+默认管理员账号：`admin`
+
+默认管理员密码：日志中查看（修改密码和注册账号均需要提供请牢记！）
 
 ## 构建 Docker 镜像
 
 ```bash
 # 构建镜像
-docker build -t doublestack-shop:v1.0.7 .
+docker build -t doublestack-shop:v1.0.8 .
 
 # 推送镜像到 Docker Hub
-docker tag doublestack-shop:v1.0.7 yourusername/doublestack-shop:v1.0.7
-docker push yourusername/doublestack-shop:v1.0.7
+docker tag doublestack-shop:v1.0.8 yourusername/doublestack-shop:v1.0.8
+docker push yourusername/doublestack-shop:v1.0.8
 ```
 
 ## 项目结构
@@ -81,7 +83,8 @@ doublestack-shop/
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
 | v1.0.0 | 2026-05-09 | 初始版本 |
-| v1.0.7 | 2026-05-09 | 最新版本 |
+| v1.0.7 | 2026-05-09 | 问题修复及UI优化 |
+| v1.0.8 | 2026-05-11 | 修复注册页面API路径问题，统一登录/注册/忘记密码页面样式 |
 
 ## 许可证
 
