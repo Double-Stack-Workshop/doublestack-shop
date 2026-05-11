@@ -292,12 +292,100 @@ async def check_for_updates():
     
     is_update_available = latest_version > VERSION
     
+    if is_update_available:
+        generate_update_script(latest_version)
+    
     return {
         "success": True,
         "current_version": VERSION,
         "latest_version": latest_version,
         "update_available": is_update_available
     }
+
+def generate_update_script(latest_version):
+    import os
+    
+    script_dir = "/app/scripts"
+    script_path = os.path.join(script_dir, "update_app.sh")
+    
+    os.makedirs(script_dir, exist_ok=True)
+    
+    script_content = f"""#!/bin/bash
+# Double Stack Store 更新脚本
+# 目标版本: {latest_version}
+# 当前版本: {VERSION}
+
+set -e
+
+echo "======================================"
+echo "  Double Stack Store 更新脚本"
+echo "  当前版本: {VERSION}"
+echo "  目标版本: {latest_version}"
+echo "======================================"
+
+# 1. 获取当前容器信息
+echo ""
+echo "[1/5] 正在获取当前容器配置..."
+CONTAINER_NAME=$(docker ps --filter "name=double-stack-app" --format "{{.Names}}")
+IMAGE_NAME=$(docker inspect "$CONTAINER_NAME" --format "{{.Config.Image}}")
+NETWORK_MODE=$(docker inspect "$CONTAINER_NAME" --format "{{.HostConfig.NetworkMode}}")
+
+# 获取端口映射
+PORT_MAP=$(docker inspect "$CONTAINER_NAME" --format "{{range .HostConfig.PortBindings}}{{.}}{{end}}" | tr -d '[\\]"')
+
+# 获取挂载目录
+VOLUMES=$(docker inspect "$CONTAINER_NAME" --format "{{range .Mounts}}-v {{.Source}}:{{.Destination}}{{end}}")
+
+echo "  容器名称: $CONTAINER_NAME"
+echo "  当前镜像: $IMAGE_NAME"
+echo "  网络模式: $NETWORK_MODE"
+
+# 2. 拉取最新镜像
+echo ""
+echo "[2/5] 正在拉取最新镜像..."
+docker pull {DOCKERHUB_REPO}:{latest_version}
+
+# 3. 停止当前容器
+echo ""
+echo "[3/5] 正在停止当前容器..."
+docker stop "$CONTAINER_NAME"
+
+# 4. 删除旧容器
+echo ""
+echo "[4/6] 正在删除旧容器..."
+docker rm "$CONTAINER_NAME"
+
+# 5. 启动新容器
+echo ""
+echo "[5/6] 正在启动新版本容器..."
+docker run -d \\
+  --name "$CONTAINER_NAME" \\
+  --network "$NETWORK_MODE" \\
+  $VOLUMES \\
+  --privileged \\
+  $PORT_MAP \\
+  {DOCKERHUB_REPO}:{latest_version}
+
+# 6. 清理旧镜像
+echo ""
+echo "[6/6] 正在清理旧镜像..."
+OLD_IMAGE=$(docker images --filter "dangling=true" --format "{{.ID}}")
+if [ -n "$OLD_IMAGE" ]; then
+    docker rmi "$OLD_IMAGE"
+fi
+
+echo ""
+echo "======================================"
+echo "  更新完成！"
+echo "  新版本: {latest_version}"
+echo "======================================"
+"""
+    
+    with open(script_path, "w") as f:
+        f.write(script_content)
+    
+    os.chmod(script_path, 0o755)
+    print(f"更新脚本已生成: {script_path}")
 
 @router.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):

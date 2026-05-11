@@ -256,7 +256,7 @@ async function checkForUpdates() {
         
         if (result.success) {
             if (result.update_available) {
-                statusEl.innerHTML = `<i class="fas fa-arrow-up"></i> 有新版本可用: ${result.latest_version}`;
+                statusEl.innerHTML = `<i class="fas fa-arrow-up"></i> 有新版本可用: ${result.latest_version}<br><span style="font-size:12px;color:#666;">更新脚本已生成，请前往终端运行: <code style="color:#22c55e;">bash /app/scripts/update_app.sh</code></span>`;
                 statusEl.className = 'update-status available';
             } else {
                 statusEl.innerHTML = `<i class="fas fa-check"></i> 当前已是最新版本`;

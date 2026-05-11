@@ -11,6 +11,7 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/repos:/app/repos
+      - ./backend/scripts:/app/scripts
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
       - /etc/passwd:/etc/passwd:ro
