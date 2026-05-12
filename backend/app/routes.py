@@ -21,7 +21,11 @@ from .services import (
     restart_container,
     remove_container,
     get_container_logs,
-    get_latest_dockerhub_version
+    get_latest_dockerhub_version,
+    get_all_images,
+    delete_image,
+    search_dockerhub_images,
+    pull_image
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -386,6 +390,31 @@ echo "======================================"
     
     os.chmod(script_path, 0o755)
     print(f"更新脚本已生成: {script_path}")
+
+@router.get("/images")
+async def list_images():
+    images = get_all_images()
+    return images
+
+class PullImageRequest(BaseModel):
+    image_name: str
+
+@router.post("/images/pull")
+async def pull_image_endpoint(request: PullImageRequest):
+    result = pull_image(request.image_name)
+    return result
+
+@router.delete("/images/{image_id}")
+async def delete_image_endpoint(image_id: str):
+    result = delete_image(image_id)
+    if result["success"]:
+        return result
+    raise HTTPException(status_code=500, detail=result["message"])
+
+@router.get("/images/search")
+async def search_images(query: str):
+    results = search_dockerhub_images(query)
+    return results
 
 @router.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):

@@ -89,11 +89,21 @@ body {
     object-fit: cover;
 }
 
+.stats-section {
+    padding: 25px 30px;
+}
+
+.stats-section h2 {
+    font-size: 18px;
+    color: #1e293b;
+    margin-bottom: 18px;
+    font-weight: 600;
+}
+
 .stats-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 20px;
-    padding: 25px 30px;
 }
 
 .card {
@@ -202,7 +212,7 @@ body {
 
 .action-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(4, minmax(160px, 1fr));
     gap: 16px;
 }
 

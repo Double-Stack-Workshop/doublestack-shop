@@ -554,6 +554,149 @@ def remove_container(container_id: str, force: bool = False) -> bool:
     except Exception:
         return False
 
+def get_all_images() -> list:
+    try:
+        result = subprocess.run(
+            ["docker", "images", "--filter", "dangling=false", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedSince}}|{{.CreatedAt}}"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            images = []
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line.strip():
+                    parts = line.split('|')
+                    if len(parts) >= 6:
+                        image_id = parts[0].strip()
+                        repository = parts[1].strip()
+                        tag = parts[2].strip()
+                        size = parts[3].strip()
+                        created_since = parts[4].strip()
+                        created_at = parts[5].strip()
+                        
+                        repo_tags = []
+                        if repository != '<none>':
+                            repo_tags.append(f"{repository}:{tag}")
+                        
+                        images.append({
+                            'id': image_id,
+                            'name': repository if repository != '<none>' else 'untagged',
+                            'tag': tag,
+                            'repo_tags': repo_tags,
+                            'size': parse_size(size),
+                            'created_since': created_since,
+                            'created_at': created_at
+                        })
+            return images
+        else:
+            return []
+    except subprocess.TimeoutExpired:
+        return []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+def parse_size(size_str: str) -> int:
+    try:
+        size_str = size_str.strip()
+        if size_str.endswith('GB'):
+            return int(float(size_str[:-2]) * 1024 * 1024 * 1024)
+        elif size_str.endswith('MB'):
+            return int(float(size_str[:-2]) * 1024 * 1024)
+        elif size_str.endswith('KB'):
+            return int(float(size_str[:-2]) * 1024)
+        elif size_str.endswith('B'):
+            return int(size_str[:-1])
+        return 0
+    except Exception:
+        return 0
+
+def delete_image(image_id: str) -> Dict:
+    try:
+        result = subprocess.run(
+            ["docker", "rmi", "-f", image_id],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            return {"success": True, "message": "镜像删除成功"}
+        else:
+            return {"success": False, "message": f"删除失败: {result.stderr}"}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "删除操作超时"}
+    except FileNotFoundError:
+        return {"success": False, "message": "Docker命令不可用"}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+def search_dockerhub_images(query: str) -> list:
+    try:
+        url = f"https://hub.docker.com/v2/search/repositories?query={query}&page_size=20"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            results = []
+            for result in data.get('results', []):
+                name = result.get('name') or result.get('repo_name')
+                
+                if not name:
+                    continue
+                    
+                description = result.get('description') or result.get('short_description') or '暂无描述'
+                is_official = result.get('is_official', False)
+                is_automated = result.get('is_automated', False)
+                
+                tags = ['latest']
+                try:
+                    tags_url = f"https://hub.docker.com/v2/repositories/{name}/tags?page_size=10"
+                    tags_response = requests.get(tags_url, timeout=5)
+                    if tags_response.status_code == 200:
+                        tags_data = tags_response.json()
+                        tag_results = tags_data.get('results', [])
+                        tags = [tag.get('name') for tag in tag_results if tag.get('name')][:5]
+                except Exception:
+                    tags = ['latest']
+                
+                results.append({
+                    'name': name,
+                    'description': description if description else '暂无描述',
+                    'is_official': is_official,
+                    'is_automated': is_automated,
+                    'tags': tags if tags else ['latest']
+                })
+            return results
+        return []
+    except requests.exceptions.RequestException:
+        return []
+    except Exception:
+        return []
+
+def pull_image(image_name: str) -> Dict:
+    try:
+        result = subprocess.run(
+            ["docker", "pull", image_name],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode == 0:
+            return {"success": True, "message": f"镜像拉取成功: {image_name}"}
+        else:
+            return {"success": False, "message": f"拉取失败: {result.stderr}"}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "拉取操作超时"}
+    except FileNotFoundError:
+        return {"success": False, "message": "Docker命令不可用"}
+    except Exception as e:
+        return {"success": False, "message": f"拉取失败: {str(e)}"}
+
 import requests
 
 def get_latest_dockerhub_version(repo_name: str) -> Optional[str]:

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 镜像管理</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="./image.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard-container" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>镜像管理</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <section class="search-bar">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="搜索镜像...">
+                    </div>
+                    <button id="pullImageBtn" class="add-btn">
+                        <i class="fas fa-download"></i>
+                        <span>拉取镜像</span>
+                    </button>
+                    <button id="searchDockerHubBtn" class="add-btn secondary">
+                        <i class="fab fa-docker"></i>
+                        <span>DockerHub</span>
+                    </button>
+                </section>
+                
+                <section class="image-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fab fa-docker"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="imageCount">0</div>
+                            <div class="stat-label">本地镜像</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-hdd"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="totalSize">0 B</div>
+                            <div class="stat-label">占用空间</div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section class="image-list">
+                    <div class="image-grid" id="imageGrid">
+                        <div class="empty-state">
+                            <i class="fas fa-image"></i>
+                            <p>暂无镜像，点击右上角拉取镜像</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+        
+        <div id="pullImageModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>拉取镜像</h2>
+                    <button class="modal-close" onclick="closeModal('pullImageModal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="pullImageForm" class="modal-form">
+                    <div class="form-group">
+                        <label for="imageName">镜像名称</label>
+                        <input type="text" id="imageName" placeholder="例如：nginx:latest 或 library/nginx:latest">
+                    </div>
+                    <div class="form-group">
+                        <label for="tag">标签 <span class="optional">(可选，默认为latest)</span></label>
+                        <input type="text" id="tag" placeholder="latest" value="latest">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-cancel" onclick="closeModal('pullImageModal')">取消</button>
+                        <button type="submit" class="btn-submit">拉取</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div id="dockerHubModal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>从 DockerHub 搜索镜像</h2>
+                    <button class="modal-close" onclick="closeModal('dockerHubModal')">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-form">
+                    <div class="search-box-container">
+                        <div class="search-box small">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="dockerHubSearch" placeholder="搜索镜像...">
+                        </div>
+                        <button id="searchBtn" class="btn-search">搜索</button>
+                    </div>
+                    <div class="search-results" id="searchResults">
+                        <div class="empty-search">
+                            <i class="fab fa-docker"></i>
+                            <p>输入关键词搜索 DockerHub</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="./image.js"></script>
+</body>
+</html>

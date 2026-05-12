@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: double-stack-app
+    container_name: doublestack-shop
     ports:
       - "8000:8001"
     volumes:

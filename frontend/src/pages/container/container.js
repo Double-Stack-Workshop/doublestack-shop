@@ -112,7 +112,7 @@ function renderContainers(containers) {
         <div class="container-card ${container.state}">
             <div class="container-info">
                 <div class="container-icon">
-                    <i class="fas fa-box"></i>
+                    <i class="fab fa-docker"></i>
                 </div>
                 <div class="container-details">
                     <h3>${container.name}</h3>
@@ -122,16 +122,11 @@ function renderContainers(containers) {
                     </p>
                 </div>
             </div>
-            <div class="container-info">
+            <div class="container-status">
                 <span class="status-badge ${container.state}">
                     <i class="fas fa-circle"></i>
                     ${container.state === 'running' ? '运行中' : '已停止'}
                 </span>
-                ${container.state === 'running' && container.uptime ? `
-                    <span style="font-size: 12px; color: #6b7280; margin-left: 12px;">
-                        运行 ${container.uptime}
-                    </span>
-                ` : ''}
             </div>
             <div class="container-actions">
                 <button class="action-btn view" title="查看详情" onclick="showContainerDetail('${container.id}')">

@@ -283,7 +283,6 @@ body {
 .container-card {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 16px 20px;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
@@ -309,6 +308,16 @@ body {
     display: flex;
     align-items: center;
     gap: 16px;
+    flex: 1;
+}
+
+.container-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 180px;
+    justify-content: flex-end;
+    margin-right: 16px;
 }
 
 .container-icon {

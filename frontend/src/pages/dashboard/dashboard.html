@@ -27,7 +27,9 @@
                 </div>
             </header>
             
-            <section class="stats-cards">
+            <section class="stats-section">
+                <h2>数据统计</h2>
+                <div class="stats-cards">
                 <div class="card" id="repoCountCard">
                     <div class="card-icon bg-blue">
                         <i class="fab fa-github"></i>
@@ -40,17 +42,17 @@
                 
                 <div class="card" id="deployedAppsCard">
                     <div class="card-icon bg-green">
-                        <i class="fas fa-rocket"></i>
+                        <i class="fab fa-docker"></i>
                     </div>
                     <div class="card-content">
-                        <h3>已部署应用</h3>
+                        <h3>已部署容器</h3>
                         <p class="card-value" id="deployedAppsCount">0</p>
                     </div>
                 </div>
                 
                 <div class="card" id="containerCountCard">
                     <div class="card-icon bg-orange">
-                        <i class="fas fa-boxes"></i>
+                        <i class="fab fa-docker"></i>
                     </div>
                     <div class="card-content">
                         <h3>运行中容器</h3>
@@ -67,6 +69,7 @@
                         <p class="card-value" id="successRate">0%</p>
                     </div>
                 </div>
+                </div>
             </section>
             
             <section class="quick-actions">
@@ -77,12 +80,20 @@
                         <span>仓库管理</span>
                     </button>
                     <button class="action-btn" onclick="navigateTo('deploy')">
-                        <i class="fas fa-rocket"></i>
-                        <span>应用部署</span>
+                        <i class="fab fa-docker"></i>
+                        <span>容器部署</span>
                     </button>
                     <button class="action-btn" onclick="navigateTo('container')">
-                        <i class="fas fa-boxes"></i>
+                        <i class="fab fa-docker"></i>
                         <span>容器管理</span>
+                    </button>
+                    <button class="action-btn" onclick="navigateTo('image')">
+                        <i class="fab fa-docker"></i>
+                        <span>镜像管理</span>
+                    </button>
+                    <button class="action-btn" onclick="navigateTo('terminal')">
+                        <i class="fas fa-terminal"></i>
+                        <span>终端</span>
                     </button>
                     <button class="action-btn" onclick="navigateTo('settings')">
                         <i class="fas fa-cog"></i>
@@ -100,7 +111,7 @@
                         </div>
                         <div class="activity-content">
                             <h4>暂无部署记录</h4>
-                            <p>通过应用部署页面部署应用后，记录将显示在这里</p>
+                            <p>通过容器部署页面部署容器后，记录将显示在这里</p>
                         </div>
                     </div>
                 </div>
