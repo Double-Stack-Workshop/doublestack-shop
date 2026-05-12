@@ -329,29 +329,36 @@ echo "======================================"
 
 # 1. 获取当前容器信息
 echo ""
-echo "[1/5] 正在获取当前容器配置..."
-CONTAINER_NAME=$(docker ps --filter "name=double-stack-app" --format "{{.Names}}")
-IMAGE_NAME=$(docker inspect "$CONTAINER_NAME" --format "{{.Config.Image}}")
-NETWORK_MODE=$(docker inspect "$CONTAINER_NAME" --format "{{.HostConfig.NetworkMode}}")
+echo "[1/6] 正在获取当前容器配置..."
+CONTAINER_NAME=$(docker ps --filter "name=doublestack-shop" --format "{{{{.Names}}}}")
 
-# 获取端口映射
-PORT_MAP=$(docker inspect "$CONTAINER_NAME" --format "{{range .HostConfig.PortBindings}}{{.}}{{end}}" | tr -d '[\\]"')
+if [ -z "$CONTAINER_NAME" ]; then
+    echo "错误：未找到运行中的 doublestack-shop 容器！"
+    exit 1
+fi
 
-# 获取挂载目录
-VOLUMES=$(docker inspect "$CONTAINER_NAME" --format "{{range .Mounts}}-v {{.Source}}:{{.Destination}}{{end}}")
+IMAGE_NAME=$(docker inspect "$CONTAINER_NAME" --format "{{{{.Config.Image}}}}")
+NETWORK_MODE=$(docker inspect "$CONTAINER_NAME" --format "{{{{.HostConfig.NetworkMode}}}}")
+
+PORT_MAP=$(docker inspect "$CONTAINER_NAME" | grep -oP '"HostPort":"\\K[^"]+' | head -1)
+CONTAINER_PORT=$(docker inspect "$CONTAINER_NAME" | grep -oP '"[0-9]+/tcp":' | head -1 | cut -d'"' -f2 | cut -d'/' -f1)
+PORT_PARAM="-p $PORT_MAP:$CONTAINER_PORT"
+
+VOLUMES=$(docker inspect "$CONTAINER_NAME" --format "{{{{range .Mounts}}}} -v {{{{.Source}}}}:{{{{.Destination}}}} {{{{end}}}}")
 
 echo "  容器名称: $CONTAINER_NAME"
 echo "  当前镜像: $IMAGE_NAME"
 echo "  网络模式: $NETWORK_MODE"
+echo "  端口映射: $PORT_PARAM"
 
 # 2. 拉取最新镜像
 echo ""
-echo "[2/5] 正在拉取最新镜像..."
+echo "[2/6] 正在拉取最新镜像..."
 docker pull {DOCKERHUB_REPO}:{latest_version}
 
 # 3. 停止当前容器
 echo ""
-echo "[3/5] 正在停止当前容器..."
+echo "[3/6] 正在停止当前容器..."
 docker stop "$CONTAINER_NAME"
 
 # 4. 删除旧容器
@@ -366,16 +373,15 @@ docker run -d \\
   --name "$CONTAINER_NAME" \\
   --network "$NETWORK_MODE" \\
   $VOLUMES \\
-  --privileged \\
-  $PORT_MAP \\
+  $PORT_PARAM \\
   {DOCKERHUB_REPO}:{latest_version}
 
 # 6. 清理旧镜像
 echo ""
 echo "[6/6] 正在清理旧镜像..."
-OLD_IMAGE=$(docker images --filter "dangling=true" --format "{{.ID}}")
+OLD_IMAGE=$(docker images --filter "dangling=true" --format "{{{{.ID}}}}")
 if [ -n "$OLD_IMAGE" ]; then
-    docker rmi "$OLD_IMAGE"
+    docker rmi "$OLD_IMAGE" > /dev/null 2>&1
 fi
 
 echo ""
