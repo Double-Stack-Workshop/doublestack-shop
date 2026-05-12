@@ -345,8 +345,8 @@ NETWORK_MODE=$(docker inspect "$CONTAINER_NAME" --format "{{{{.HostConfig.Networ
 
 PORT_MAPPING=$(docker port "$CONTAINER_NAME" 2>/dev/null | head -1)
 if [ -n "$PORT_MAPPING" ]; then
-    CONTAINER_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{print $1}' | cut -d'/' -f1)
-    HOST_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+    CONTAINER_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{{print $1}}' | cut -d'/' -f1)
+    HOST_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{{print $2}}' | sed 's/^[ \t]*//;s/[ \t]*$//')
     PORT_PARAM="-p $HOST_PORT:$CONTAINER_PORT"
 else
     PORT_PARAM=""
