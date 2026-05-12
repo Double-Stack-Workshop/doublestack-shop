@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 容器推荐</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="./recommend.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="dashboard-container" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>容器推荐</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="content-area">
+                <section class="recommend-section">
+                    <div class="section-header">
+                        <h2>推荐容器</h2>
+                    </div>
+                    
+                    <div class="recommend-grid" id="recommendGrid">
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>qBittorrent</h3>
+                                    <p>轻量级 BitTorrent 客户端</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>功能强大的开源 BitTorrent 客户端，支持远程管理、RSS订阅、Web UI 等功能。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">下载工具</span>
+                                <span class="tag">BT</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('qbittorrent.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://github.com/qbittorrent/qBittorrent/wiki')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>Transmission</h3>
+                                    <p>快速轻量级 BT 客户端</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>开源的 BitTorrent 客户端，以简洁高效著称，支持 Web 界面远程管理。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">下载工具</span>
+                                <span class="tag">BT</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('transmission.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://transmissionbt.com/')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>Emby</h3>
+                                    <p>个人媒体服务器</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>强大的媒体服务器，支持自动刮削元数据、多设备播放、实时转码、直播电视等功能。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">媒体</span>
+                                <span class="tag">影音</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('emby.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://support.emby.media/')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>MoviePilot</h3>
+                                    <p>智能媒体库管理工具</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>NAS 媒体库自动化管理工具，支持自动订阅、刮削、整理、通知等功能。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">媒体</span>
+                                <span class="tag">自动化</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('moviepilot.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://movie-pilot.org/')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>Navidrome</h3>
+                                    <p>现代音乐流媒体服务器</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>开源的音乐流媒体服务器，支持 Subsonic API，可在线播放和管理个人音乐库。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">音乐</span>
+                                <span class="tag">流媒体</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('navidrome.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://www.navidrome.org/docs/')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="recommend-card">
+                            <div class="card-header">
+                                <div class="card-icon">
+                                    <i class="fab fa-docker"></i>
+                                </div>
+                                <div class="card-title">
+                                    <h3>OpenList</h3>
+                                    <p>网盘文件列表程序</p>
+                                </div>
+                            </div>
+                            <div class="card-description">
+                                <p>支持多种网盘的文件列表程序，可统一管理阿里云盘、百度网盘、天翼云盘等。</p>
+                            </div>
+                            <div class="card-tags">
+                                <span class="tag">网盘</span>
+                                <span class="tag">文件管理</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-primary" onclick="goToDeploy('openlist.yml')">
+                                    <i class="fas fa-download"></i>
+                                    <span>获取容器</span>
+                                </button>
+                                <button class="btn btn-secondary" onclick="openTutorial('https://github.com/OpenListTeam/OpenList')">
+                                    <i class="fas fa-book-open"></i>
+                                    <span>使用教程</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+    
+    <script src="./recommend.js"></script>
+</body>
+</html>

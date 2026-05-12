@@ -3,10 +3,21 @@ const API_BASE_URL = '/api';
 let originalContent = '';
 
 document.addEventListener('DOMContentLoaded', async function() {
-    await loadSidebar();
+    try {
+        await loadSidebar();
+    } catch (error) {
+        console.error('Error loading sidebar:', error);
+    }
+    
     checkLogin();
     loadUserInfo();
-    loadRepositories();
+    
+    try {
+        await loadRepositories();
+    } catch (error) {
+        console.error('Error loading repositories:', error);
+    }
+    
     setupEventListeners();
 });
 
@@ -47,10 +58,20 @@ function loadUserInfo() {
 
 async function loadRepositories() {
     const select = document.getElementById('repoSelect');
+    if (!select) {
+        console.error('repoSelect element not found');
+        return;
+    }
     select.innerHTML = '<option value="">请选择仓库</option>';
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const searchQuery = urlParams.get('search');
     
     try {
         const response = await fetch(`${API_BASE_URL}/repos`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const repos = await response.json();
         
         repos.forEach(repo => {
@@ -59,18 +80,30 @@ async function loadRepositories() {
             option.textContent = repo.name;
             select.appendChild(option);
         });
+        
+        if (searchQuery && repos.length > 0) {
+            select.value = repos[0].name;
+            await loadYmlFiles(repos[0].name, searchQuery);
+        }
     } catch (error) {
+        console.error('Error loading repositories:', error);
         addLog('error', '获取仓库列表失败: ' + error.message);
     }
 }
 
 let allYmlFiles = [];
 
-async function loadYmlFiles(repoName) {
+async function loadYmlFiles(repoName, searchQuery = '') {
     const select = document.getElementById('fileSelect');
     const searchInput = document.getElementById('fileSearch');
+    
+    if (!select || !searchInput) {
+        console.error('fileSelect or fileSearch element not found');
+        return;
+    }
+    
     select.innerHTML = '<option value="">请选择YML文件</option>';
-    searchInput.value = '';
+    searchInput.value = searchQuery;
     allYmlFiles = [];
     
     if (!repoName) {
@@ -80,11 +113,21 @@ async function loadYmlFiles(repoName) {
     
     try {
         const response = await fetch(`${API_BASE_URL}/repos/${repoName}/files`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const files = await response.json();
         
         allYmlFiles = files.filter(file => file.name.endsWith('.yml') || file.name.endsWith('.yaml'));
         
-        allYmlFiles.forEach(file => {
+        let filteredFiles = allYmlFiles;
+        if (searchQuery) {
+            filteredFiles = allYmlFiles.filter(file => 
+                file.name.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+        
+        filteredFiles.forEach(file => {
             const option = document.createElement('option');
             option.value = file.name;
             option.textContent = file.name;
@@ -95,8 +138,11 @@ async function loadYmlFiles(repoName) {
         
         if (allYmlFiles.length === 0) {
             addLog('warning', '该仓库中没有找到YML文件');
+        } else if (searchQuery && filteredFiles.length === 0) {
+            addLog('warning', `未找到匹配 "${searchQuery}" 的文件`);
         }
     } catch (error) {
+        console.error('Error loading files:', error);
         addLog('error', '获取文件列表失败: ' + error.message);
         searchInput.style.display = 'none';
     }
@@ -587,7 +633,8 @@ function setupEventListeners() {
         originalContent = '';
         saveBtn.disabled = true;
         deployBtn.disabled = true;
-        loadYmlFiles(this.value);
+        const searchInput = document.getElementById('fileSearch');
+        loadYmlFiles(this.value, searchInput.value);
     });
     
     fileSelect.addEventListener('change', function() {
