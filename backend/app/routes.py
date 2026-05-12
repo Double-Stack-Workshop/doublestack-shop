@@ -343,9 +343,14 @@ fi
 IMAGE_NAME=$(docker inspect "$CONTAINER_NAME" --format "{{{{.Config.Image}}}}")
 NETWORK_MODE=$(docker inspect "$CONTAINER_NAME" --format "{{{{.HostConfig.NetworkMode}}}}")
 
-PORT_MAP=$(docker inspect "$CONTAINER_NAME" | grep -oP '"HostPort":"\\K[^"]+' | head -1)
-CONTAINER_PORT=$(docker inspect "$CONTAINER_NAME" | grep -oP '"[0-9]+/tcp":' | head -1 | cut -d'"' -f2 | cut -d'/' -f1)
-PORT_PARAM="-p $PORT_MAP:$CONTAINER_PORT"
+PORT_MAPPING=$(docker port "$CONTAINER_NAME" 2>/dev/null | head -1)
+if [ -n "$PORT_MAPPING" ]; then
+    CONTAINER_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{print $1}' | cut -d'/' -f1)
+    HOST_PORT=$(echo "$PORT_MAPPING" | awk -F '->' '{print $2}' | sed 's/^[ \t]*//;s/[ \t]*$//')
+    PORT_PARAM="-p $HOST_PORT:$CONTAINER_PORT"
+else
+    PORT_PARAM=""
+fi
 
 VOLUMES=$(docker inspect "$CONTAINER_NAME" --format "{{{{range .Mounts}}}} -v {{{{.Source}}}}:{{{{.Destination}}}} {{{{end}}}}")
 
@@ -382,9 +387,9 @@ docker run -d \\
 # 6. 清理旧镜像
 echo ""
 echo "[6/6] 正在清理旧镜像..."
-OLD_IMAGE=$(docker images --filter "dangling=true" --format "{{{{.ID}}}}")
-if [ -n "$OLD_IMAGE" ]; then
-    docker rmi "$OLD_IMAGE" > /dev/null 2>&1
+if [ -n "$IMAGE_NAME" ]; then
+    docker rmi "$IMAGE_NAME" > /dev/null 2>&1
+    echo "  已删除旧镜像: $IMAGE_NAME"
 fi
 
 echo ""
