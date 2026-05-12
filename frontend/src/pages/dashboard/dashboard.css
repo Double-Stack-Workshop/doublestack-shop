@@ -21,6 +21,13 @@ body {
     display: flex;
     flex-direction: column;
     transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 100vh;
+}
+
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 20px;
 }
 
 .sidebar.collapsed ~ .main-content {
@@ -334,6 +341,162 @@ body {
     font-size: 12px;
     color: #94a3b8;
     font-weight: 400;
+}
+
+.connectivity-section {
+    padding: 0 30px;
+    margin-top: 30px;
+}
+
+.connectivity-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.connectivity-section h2 {
+    font-size: 18px;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.refresh-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.refresh-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.refresh-btn:active {
+    transform: translateY(0);
+}
+
+.connectivity-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.connectivity-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+}
+
+.connectivity-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.connectivity-card.success {
+    border-left: 4px solid #10b981;
+}
+
+.connectivity-card.failed {
+    border-left: 4px solid #ef4444;
+}
+
+.connectivity-card.loading {
+    border-left: 4px solid #f59e0b;
+}
+
+.connectivity-card.error {
+    border-left: 4px solid #64748b;
+}
+
+.connectivity-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.connectivity-card.success .connectivity-icon {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.connectivity-card.failed .connectivity-icon {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.connectivity-card.loading .connectivity-icon {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.connectivity-card.error .connectivity-icon {
+    background: rgba(100, 116, 139, 0.1);
+    color: #64748b;
+}
+
+.connectivity-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.connectivity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.connectivity-content h4 {
+    font-size: 15px;
+    color: #1e293b;
+    font-weight: 600;
+    margin: 0;
+}
+
+.connectivity-content .latency {
+    font-size: 13px;
+    color: #10b981;
+    font-weight: 600;
+    background: rgba(16, 185, 129, 0.1);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.connectivity-content p {
+    font-size: 13px;
+    color: #64748b;
+    margin: 6px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.connectivity-url {
+    font-size: 11px;
+    color: #94a3b8;
+    font-family: 'Courier New', monospace;
 }
 
 @media (max-width: 768px) {

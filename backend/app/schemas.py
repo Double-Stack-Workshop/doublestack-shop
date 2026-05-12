@@ -20,3 +20,4 @@ class RepoInfo(BaseModel):
     yml_files: List[YmlFile]
     last_sync: Optional[str] = None
     status: str = "active"
+    repo_dir_name: str = ""

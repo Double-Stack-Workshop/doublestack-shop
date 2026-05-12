@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (!checkLogin()) return;
     loadUserInfo();
     loadVersion();
+    loadProxyConfig();
     
     addUserBtn.addEventListener('click', function() {
         addUserModal.classList.add('active');
@@ -298,5 +299,52 @@ function loadUserInfo() {
     
     if (username) {
         document.getElementById('currentUsername').textContent = username;
+    }
+}
+
+async function loadProxyConfig() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/proxy`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                document.getElementById('httpProxy').value = result.data.http_proxy || '';
+                document.getElementById('httpsProxy').value = result.data.https_proxy || '';
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load proxy config:', error);
+    }
+}
+
+async function saveProxyConfig() {
+    const httpProxy = document.getElementById('httpProxy').value.trim();
+    const httpsProxy = document.getElementById('httpsProxy').value.trim();
+    
+    const btn = document.getElementById('saveProxyBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/proxy`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ http_proxy: httpProxy, https_proxy: httpsProxy })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showMessage('代理配置保存成功', 'success');
+        } else {
+            showMessage(result.message || '保存失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
     }
 }

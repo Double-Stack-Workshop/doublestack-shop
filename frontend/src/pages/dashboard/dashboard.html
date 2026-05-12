@@ -27,95 +27,118 @@
                 </div>
             </header>
             
-            <section class="stats-section">
-                <h2>数据统计</h2>
-                <div class="stats-cards">
-                <div class="card" id="repoCountCard">
-                    <div class="card-icon bg-blue">
-                        <i class="fab fa-github"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>仓库数量</h3>
-                        <p class="card-value" id="repoCount">0</p>
-                    </div>
-                </div>
-                
-                <div class="card" id="deployedAppsCard">
-                    <div class="card-icon bg-green">
-                        <i class="fab fa-docker"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>已部署容器</h3>
-                        <p class="card-value" id="deployedAppsCount">0</p>
-                    </div>
-                </div>
-                
-                <div class="card" id="containerCountCard">
-                    <div class="card-icon bg-orange">
-                        <i class="fab fa-docker"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>运行中容器</h3>
-                        <p class="card-value" id="containerCount">0</p>
-                    </div>
-                </div>
-                
-                <div class="card" id="successRateCard">
-                    <div class="card-icon bg-purple">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>部署成功率</h3>
-                        <p class="card-value" id="successRate">0%</p>
-                    </div>
-                </div>
-                </div>
-            </section>
-            
-            <section class="quick-actions">
-                <h2>快捷操作</h2>
-                <div class="action-grid">
-                    <button class="action-btn" onclick="navigateTo('repository')">
-                        <i class="fab fa-github"></i>
-                        <span>仓库管理</span>
-                    </button>
-                    <button class="action-btn" onclick="navigateTo('deploy')">
-                        <i class="fab fa-docker"></i>
-                        <span>容器部署</span>
-                    </button>
-                    <button class="action-btn" onclick="navigateTo('container')">
-                        <i class="fab fa-docker"></i>
-                        <span>容器管理</span>
-                    </button>
-                    <button class="action-btn" onclick="navigateTo('image')">
-                        <i class="fab fa-docker"></i>
-                        <span>镜像管理</span>
-                    </button>
-                    <button class="action-btn" onclick="navigateTo('terminal')">
-                        <i class="fas fa-terminal"></i>
-                        <span>终端</span>
-                    </button>
-                    <button class="action-btn" onclick="navigateTo('settings')">
-                        <i class="fas fa-cog"></i>
-                        <span>系统设置</span>
-                    </button>
-                </div>
-            </section>
-            
-            <section class="recent-activity">
-                <h2>最近部署记录</h2>
-                <div class="activity-list" id="deploymentList">
-                    <div class="activity-item empty">
-                        <div class="activity-icon info">
-                            <i class="fas fa-info"></i>
+            <div class="content-area">
+                <section class="stats-section">
+                    <h2>数据统计</h2>
+                    <div class="stats-cards">
+                    <div class="card" id="repoCountCard">
+                        <div class="card-icon bg-blue">
+                            <i class="fab fa-github"></i>
                         </div>
-                        <div class="activity-content">
-                            <h4>暂无部署记录</h4>
-                            <p>通过容器部署页面部署容器后，记录将显示在这里</p>
+                        <div class="card-content">
+                            <h3>仓库数量</h3>
+                            <p class="card-value" id="repoCount">0</p>
                         </div>
                     </div>
-                </div>
-            </section>
+                    
+                    <div class="card" id="deployedAppsCard">
+                        <div class="card-icon bg-green">
+                            <i class="fab fa-docker"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>已部署容器</h3>
+                            <p class="card-value" id="deployedAppsCount">0</p>
+                        </div>
+                    </div>
+                    
+                    <div class="card" id="containerCountCard">
+                        <div class="card-icon bg-orange">
+                            <i class="fab fa-docker"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>运行中容器</h3>
+                            <p class="card-value" id="containerCount">0</p>
+                        </div>
+                    </div>
+                    
+                    <div class="card" id="successRateCard">
+                        <div class="card-icon bg-purple">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>部署成功率</h3>
+                            <p class="card-value" id="successRate">0%</p>
+                        </div>
+                    </div>
+                    </div>
+                </section>
+                
+                <section class="quick-actions">
+                    <h2>快捷操作</h2>
+                    <div class="action-grid">
+                        <button class="action-btn" onclick="navigateTo('repository')">
+                            <i class="fab fa-github"></i>
+                            <span>仓库管理</span>
+                        </button>
+                        <button class="action-btn" onclick="navigateTo('deploy')">
+                            <i class="fab fa-docker"></i>
+                            <span>容器部署</span>
+                        </button>
+                        <button class="action-btn" onclick="navigateTo('container')">
+                            <i class="fab fa-docker"></i>
+                            <span>容器管理</span>
+                        </button>
+                        <button class="action-btn" onclick="navigateTo('image')">
+                            <i class="fab fa-docker"></i>
+                            <span>镜像管理</span>
+                        </button>
+                        <button class="action-btn" onclick="navigateTo('terminal')">
+                            <i class="fas fa-terminal"></i>
+                            <span>终端</span>
+                        </button>
+                        <button class="action-btn" onclick="navigateTo('settings')">
+                            <i class="fas fa-cog"></i>
+                            <span>系统设置</span>
+                        </button>
+                    </div>
+                </section>
+                
+                <section class="connectivity-section">
+                    <div class="section-header">
+                        <h2>连接性测试</h2>
+                        <button class="refresh-btn" onclick="loadConnectivity()">
+                            <i class="fas fa-refresh"></i>
+                            <span>刷新</span>
+                        </button>
+                    </div>
+                    <div class="connectivity-grid" id="connectivityGrid">
+                        <div class="connectivity-card loading">
+                            <div class="connectivity-icon">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                            </div>
+                            <div class="connectivity-content">
+                                <h4>测试中...</h4>
+                                <p>正在测试网络连接</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section class="recent-activity">
+                    <h2>最近部署记录</h2>
+                    <div class="activity-list" id="deploymentList">
+                        <div class="activity-item empty">
+                            <div class="activity-icon info">
+                                <i class="fas fa-info"></i>
+                            </div>
+                            <div class="activity-content">
+                                <h4>暂无部署记录</h4>
+                                <p>通过容器部署页面部署容器后，记录将显示在这里</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
         </main>
     </div>
     

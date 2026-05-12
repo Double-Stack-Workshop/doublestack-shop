@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadContainerCount();
     loadSuccessRate();
     loadDeploymentHistory();
+    loadConnectivity();
     
     setInterval(loadContainerCount, 10000);
 });
@@ -216,4 +217,82 @@ function navigateTo(page) {
     if (url) {
         window.location.href = url;
     }
+}
+
+async function loadConnectivity() {
+    const container = document.getElementById('connectivityGrid');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/connectivity`);
+        if (response.ok) {
+            const data = await response.json();
+            renderConnectivity(data);
+        } else {
+            container.innerHTML = `
+                <div class="connectivity-card error">
+                    <div class="connectivity-icon">
+                        <i class="fas fa-exclamation-circle"></i>
+                    </div>
+                    <div class="connectivity-content">
+                        <h4>加载失败</h4>
+                        <p>无法获取连接性测试结果</p>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Failed to load connectivity:', error);
+        container.innerHTML = `
+            <div class="connectivity-card error">
+                <div class="connectivity-icon">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="connectivity-content">
+                    <h4>连接失败</h4>
+                    <p>无法连接到服务器</p>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function renderConnectivity(data) {
+    const container = document.getElementById('connectivityGrid');
+    
+    if (!data || !data.results || data.results.length === 0) {
+        container.innerHTML = `
+            <div class="connectivity-card error">
+                <div class="connectivity-icon">
+                    <i class="fas fa-info-circle"></i>
+                </div>
+                <div class="connectivity-content">
+                    <h4>暂无测试结果</h4>
+                    <p>点击刷新按钮进行连接性测试</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = data.results.map(result => {
+        const statusClass = result.success ? 'success' : 'failed';
+        const iconClass = result.success ? 'fa-check-circle' : 'fa-times-circle';
+        const latency = result.latency > 0 ? `${result.latency}ms` : '-';
+        
+        return `
+            <div class="connectivity-card ${statusClass}">
+                <div class="connectivity-icon">
+                    <i class="fas ${iconClass}"></i>
+                </div>
+                <div class="connectivity-content">
+                    <div class="connectivity-header">
+                        <h4>${result.name}</h4>
+                        ${result.success ? `<span class="latency">${latency}</span>` : ''}
+                    </div>
+                    <p>${result.message}</p>
+                    <span class="connectivity-url">${result.url}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
 }

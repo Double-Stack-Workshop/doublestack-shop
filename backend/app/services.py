@@ -9,6 +9,11 @@ REPOS_DIR.mkdir(exist_ok=True)
 
 repos_db: List[RepoInfo] = []
 
+proxy_config: Dict = {
+    "http_proxy": "",
+    "https_proxy": ""
+}
+
 def get_repo_name_from_url(url: str) -> str:
     return url.rstrip('/').split('/')[-1].replace('.git', '')
 
@@ -107,6 +112,7 @@ def get_all_repos() -> List[Dict]:
 
 def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = None) -> Dict:
     repo_name = name if name else get_repo_name_from_url(repo_url)
+    actual_repo_dir_name = get_repo_name_from_url(repo_url)
     
     for repo in repos_db:
         if repo.name == repo_name:
@@ -127,7 +133,8 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         local_path=local_path,
         yml_files=yml_files,
         last_sync="刚刚",
-        status="active"
+        status="active",
+        repo_dir_name=actual_repo_dir_name
     )
     repos_db.append(repo_info)
     
@@ -192,7 +199,8 @@ def get_repo(repo_name: str) -> Optional[Dict]:
 def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
     for repo in repos_db:
         if repo.name == repo_name:
-            repo_dir = REPOS_DIR / repo_name
+            actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
+            repo_dir = REPOS_DIR / actual_repo_dir_name
             for yml_file in repo.yml_files:
                 if yml_file.path == file_path or yml_file.name == file_path:
                     file_full_path = repo_dir / yml_file.path
@@ -224,7 +232,8 @@ def get_repo_files(repo_name: str) -> Optional[List[Dict]]:
 def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
     for repo in repos_db:
         if repo.name == repo_name:
-            repo_dir = REPOS_DIR / repo_name
+            actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
+            repo_dir = REPOS_DIR / actual_repo_dir_name
             for i, yml_file in enumerate(repo.yml_files):
                 if yml_file.name == file_name:
                     file_path = repo_dir / yml_file.path
@@ -252,15 +261,27 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
         if repo.name == repo_name:
             for yml_file in repo.yml_files:
                 if yml_file.path == file_path or yml_file.name == file_path:
-                    repo_dir = REPOS_DIR / repo_name
+                    # 使用实际的仓库目录名称，而不是自定义名称
+                    actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
+                    repo_dir = REPOS_DIR / actual_repo_dir_name
                     yml_full_path = repo_dir / yml_file.path
+                    
+                    # 设置环境变量（包含代理配置）
+                    env = os.environ.copy()
+                    if proxy_config["http_proxy"]:
+                        env["HTTP_PROXY"] = proxy_config["http_proxy"]
+                        env["http_proxy"] = proxy_config["http_proxy"]
+                    if proxy_config["https_proxy"]:
+                        env["HTTPS_PROXY"] = proxy_config["https_proxy"]
+                        env["https_proxy"] = proxy_config["https_proxy"]
                     
                     try:
                         result = subprocess.run(
                             ["docker-compose", "-f", str(yml_full_path), "up", "-d"],
                             capture_output=True,
                             text=True,
-                            timeout=120
+                            timeout=120,
+                            env=env
                         )
                         
                         if result.returncode == 0:
@@ -698,6 +719,117 @@ def pull_image(image_name: str) -> Dict:
         return {"success": False, "message": f"拉取失败: {str(e)}"}
 
 import requests
+import time
+
+def test_connectivity(url: str, timeout: int = 10) -> Dict:
+    """测试网络连通性"""
+    try:
+        start_time = time.time()
+        response = requests.get(url, timeout=timeout, verify=True)
+        latency = int((time.time() - start_time) * 1000)
+        
+        if response.status_code == 200:
+            return {
+                "success": True,
+                "url": url,
+                "status": "reachable",
+                "latency": latency,
+                "status_code": response.status_code,
+                "message": "连接成功"
+            }
+        else:
+            return {
+                "success": False,
+                "url": url,
+                "status": "unreachable",
+                "latency": latency,
+                "status_code": response.status_code,
+                "message": f"连接失败，HTTP状态码: {response.status_code}"
+            }
+    except requests.exceptions.Timeout:
+        return {
+            "success": False,
+            "url": url,
+            "status": "timeout",
+            "latency": timeout * 1000,
+            "message": "连接超时"
+        }
+    except requests.exceptions.SSLError:
+        return {
+            "success": False,
+            "url": url,
+            "status": "ssl_error",
+            "latency": 0,
+            "message": "SSL证书错误"
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "url": url,
+            "status": "connection_error",
+            "latency": 0,
+            "message": "连接失败，无法建立连接"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "url": url,
+            "status": "error",
+            "latency": 0,
+            "message": f"测试异常: {str(e)}"
+        }
+
+def test_all_connectivity() -> Dict:
+    """测试所有预设的网络连接"""
+    targets = [
+        {"name": "GitHub", "url": "https://github.com/"},
+        {"name": "Docker Hub", "url": "https://hub.docker.com/"}
+    ]
+    
+    results = []
+    for target in targets:
+        result = test_connectivity(target["url"])
+        result["name"] = target["name"]
+        results.append(result)
+    
+    all_successful = all(r["success"] for r in results)
+    
+    return {
+        "success": all_successful,
+        "results": results,
+        "total_tests": len(results),
+        "successful_tests": sum(1 for r in results if r["success"])
+    }
+
+def get_proxy_config() -> Dict:
+    """获取当前代理配置"""
+    return proxy_config.copy()
+
+def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
+    """设置代理配置"""
+    global proxy_config
+    
+    # 验证代理格式
+    def validate_proxy(url: str) -> bool:
+        if not url:
+            return True
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return parsed.scheme in ('http', 'https') and parsed.hostname and parsed.port
+        except:
+            return False
+    
+    if http_proxy and not validate_proxy(http_proxy):
+        return {"success": False, "message": "HTTP代理格式不正确，请使用 http://ip:port 格式"}
+    
+    if https_proxy and not validate_proxy(https_proxy):
+        return {"success": False, "message": "HTTPS代理格式不正确，请使用 https://ip:port 格式"}
+    
+    proxy_config["http_proxy"] = http_proxy.strip() if http_proxy else ""
+    proxy_config["https_proxy"] = https_proxy.strip() if https_proxy else ""
+    
+    return {"success": True, "message": "代理配置已保存"}
 
 def get_latest_dockerhub_version(repo_name: str) -> Optional[str]:
     try:

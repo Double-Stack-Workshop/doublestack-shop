@@ -25,7 +25,10 @@ from .services import (
     get_all_images,
     delete_image,
     search_dockerhub_images,
-    pull_image
+    pull_image,
+    test_all_connectivity,
+    get_proxy_config,
+    set_proxy_config
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -447,3 +450,25 @@ async def websocket_terminal(websocket: WebSocket):
         except:
             pass
         await websocket.close()
+
+@router.get("/connectivity")
+async def check_connectivity():
+    """测试网络连通性"""
+    result = test_all_connectivity()
+    return result
+
+@router.get("/proxy")
+async def get_proxy():
+    """获取当前代理配置"""
+    result = get_proxy_config()
+    return {"success": True, "data": result}
+
+class ProxyRequest(BaseModel):
+    http_proxy: str = ""
+    https_proxy: str = ""
+
+@router.put("/proxy")
+async def update_proxy(request: ProxyRequest):
+    """更新代理配置"""
+    result = set_proxy_config(request.http_proxy, request.https_proxy)
+    return result
