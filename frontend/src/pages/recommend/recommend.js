@@ -22,7 +22,7 @@ function loadUserInfo() {
     const isAdmin = localStorage.getItem('is_admin') === 'true';
     
     if (username) {
-        document.getElementById('currentUsername').textContent = username + (isAdmin ? ' (管理员)' : '');
+        document.getElementById('currentUsername').textContent = username;
     }
 }
 

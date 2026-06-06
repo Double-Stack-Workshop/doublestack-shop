@@ -450,6 +450,7 @@ def get_all_containers() -> list:
         return []
 
 def get_container_by_id(container_id: str) -> dict:
+    import datetime
     try:
         result = subprocess.run(
             ["docker", "inspect", container_id],
@@ -465,7 +466,6 @@ def get_container_by_id(container_id: str) -> dict:
             state = data['State']['Status']
             uptime = ''
             if state == 'running' and data['State']['StartedAt']:
-                import datetime
                 started_at = datetime.datetime.fromisoformat(data['State']['StartedAt'].replace('Z', '+00:00'))
                 now = datetime.datetime.now(datetime.timezone.utc)
                 delta = now - started_at
@@ -475,17 +475,32 @@ def get_container_by_id(container_id: str) -> dict:
                 minutes = (delta.seconds % 3600) // 60
                 
                 if days > 0:
-                    uptime = f'{days}天{hours}小时'
+                    uptime = f'{days}天{hours}小时{minutes}分钟'
                 elif hours > 0:
                     uptime = f'{hours}小时{minutes}分钟'
                 else:
                     uptime = f'{minutes}分钟'
             
             ports = []
-            if 'Ports' in data['NetworkSettings']:
-                for port in data['NetworkSettings']['Ports']:
-                    if port['PublicPort']:
-                        ports.append(f"{port['PublicPort']}->{port['PrivatePort']}/{port['Type']}")
+            try:
+                network_ports = data.get('NetworkSettings', {}).get('Ports', [])
+                if isinstance(network_ports, list):
+                    for port in network_ports:
+                        if isinstance(port, dict) and port.get('PublicPort'):
+                            ports.append(f"{port['PublicPort']}->{port['PrivatePort']}/{port['Type']}")
+                elif isinstance(network_ports, dict):
+                    for private_port, bindings in network_ports.items():
+                        if bindings and isinstance(bindings, list):
+                            for binding in bindings:
+                                if binding and binding.get('HostPort'):
+                                    ports.append(f"{binding['HostPort']}->{private_port}")
+            except Exception:
+                ports = []
+            
+            created_at = data['Created']
+            if created_at:
+                created_dt = datetime.datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                created_at = created_dt.strftime('%Y-%m-%d %H:%M:%S')
             
             return {
                 'id': data['Id'],
@@ -495,7 +510,7 @@ def get_container_by_id(container_id: str) -> dict:
                 'status': data['State']['Status'],
                 'uptime': uptime,
                 'ports': ports,
-                'created_at': data['Created'],
+                'created_at': created_at,
                 'command': ' '.join(data['Config']['Cmd']) if data['Config']['Cmd'] else ''
             }
         else:
