@@ -7,6 +7,8 @@ import string
 DATABASE_PATH = "./data/users.db"
 ADMIN_PASSWORD_HASH = None
 
+from .logger import log_service
+
 def init_db():
     global ADMIN_PASSWORD_HASH
     
@@ -88,6 +90,9 @@ def reset_admin_password(new_password):
         
         conn.commit()
         ADMIN_PASSWORD_HASH = hashed_password
+        
+        log_service.warning(f"管理员密码已重置", 'system')
+        
         return True
     finally:
         conn.close()
@@ -175,8 +180,12 @@ def create_user(username, password, email=None, is_admin=False):
         ''', (username, hashed_password, email, int(is_admin), now, now))
         
         conn.commit()
+        
+        log_service.success(f"用户创建成功: {username} (管理员: {is_admin})", 'system')
+        
         return True
     except sqlite3.IntegrityError:
+        log_service.warning(f"用户创建失败: {username} - 用户已存在", 'system')
         return False
     finally:
         conn.close()
@@ -207,6 +216,9 @@ def update_user(username, password=None, email=None):
             ''', params)
             
             conn.commit()
+            
+            log_service.info(f"用户信息已更新: {username} (密码: {password is not None}, 邮箱: {email is not None})", 'system')
+            
             return True
         return False
     finally:
@@ -221,6 +233,11 @@ def delete_user(username):
     
     success = cursor.rowcount > 0
     conn.close()
+    
+    if success:
+        log_service.warning(f"用户已删除: {username}", 'system')
+    else:
+        log_service.warning(f"删除用户失败: {username} - 用户不存在", 'system')
     
     return success
 

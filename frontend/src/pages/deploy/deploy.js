@@ -480,10 +480,22 @@ async function deployApplication(repoName, fileName) {
         const result = await response.json();
         
         if (result.success) {
-            addLog('success', '应用部署成功');
-            if (result.data && result.data.output) {
+            if (result.data && result.data.detailed_logs) {
+                result.data.detailed_logs.forEach(log => {
+                    if (log.includes('[镜像拉取]')) {
+                        addLog('info', log);
+                    } else if (log.includes('[启动日志]')) {
+                        addLog('info', log);
+                    } else if (log.includes('[部署成功]')) {
+                        addLog('success', log);
+                    } else {
+                        addLog('info', log);
+                    }
+                });
+            } else if (result.data && result.data.output) {
                 addLog('info', '部署日志: ' + result.data.output);
             }
+            addLog('success', '应用部署成功');
             if (result.data && result.data.container_id) {
                 addLog('info', '容器ID: ' + result.data.container_id);
             }

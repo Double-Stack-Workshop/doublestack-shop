@@ -477,3 +477,18 @@ async def update_proxy(request: ProxyRequest):
     """更新代理配置"""
     result = set_proxy_config(request.http_proxy, request.https_proxy)
     return result
+
+# 日志相关路由
+@router.get("/logs")
+async def get_logs(level: str = None, type: str = None):
+    """获取操作日志"""
+    from .logger import log_service
+    logs = log_service.get_logs(level, type)
+    return {"logs": logs}
+
+@router.delete("/logs")
+async def clear_logs():
+    """清空所有日志"""
+    from .logger import log_service
+    log_service.clear_logs()
+    return {"success": True, "message": "日志已清空"}

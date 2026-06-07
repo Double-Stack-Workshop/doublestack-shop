@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 操作日志</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/logs/logs.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container-logs" id="appContainer">
+        <!-- 侧边栏将通过JS加载 -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>操作日志</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="logs-container">
+                <div class="filters-bar">
+                    <div class="filter-group">
+                        <label>日志等级:</label>
+                        <select id="levelFilter">
+                            <option value="">全部</option>
+                            <option value="INFO">信息</option>
+                            <option value="WARNING">警告</option>
+                            <option value="ERROR">错误</option>
+                            <option value="SUCCESS">成功</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>操作类型:</label>
+                        <select id="typeFilter">
+                            <option value="">全部</option>
+                            <option value="deploy">部署</option>
+                            <option value="container">容器</option>
+                            <option value="image">镜像</option>
+                            <option value="system">系统</option>
+                        </select>
+                    </div>
+                    <button class="btn-refresh" onclick="refreshLogs()">
+                        <i class="fas fa-sync-alt"></i>
+                        刷新
+                    </button>
+                    <button class="btn-clear" onclick="clearLogs()">
+                        <i class="fas fa-trash"></i>
+                        清空日志
+                    </button>
+                </div>
+                <div class="logs-header">
+                    <div class="col-level">等级</div>
+                    <div class="col-time">时间</div>
+                    <div class="col-type">类型</div>
+                    <div class="col-message">日志内容</div>
+                    <div class="col-action">操作</div>
+                </div>
+                <div class="logs-body" id="logsBody">
+                    <div class="logs-empty">
+                        <i class="fas fa-history"></i>
+                        <p>暂无日志记录</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- 详情弹窗 -->
+    <div class="modal-overlay" id="detailModal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>部署详情日志</h3>
+                <button class="modal-close" onclick="closeDetailModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- 日志内容将动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn-close" onclick="closeDetailModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/src/pages/logs/logs.js"></script>
+</body>
+</html>

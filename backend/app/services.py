@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from .schemas import YmlFile, RepoInfo
+from .logger import log_service
 
 REPOS_DIR = Path("./repos")
 REPOS_DIR.mkdir(exist_ok=True)
@@ -116,11 +117,13 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
     
     for repo in repos_db:
         if repo.name == repo_name:
+            log_service.warning(f"仓库已存在: {repo_name}", 'system')
             return {"success": False, "message": "仓库已存在", "status": "error"}
     
     result = clone_or_pull_repo(repo_url, branch, local_path)
     
     if not result["success"]:
+        log_service.error(f"仓库添加失败: {repo_name} - {result.get('message', '未知错误')}", 'system')
         return result
     
     repo_dir = Path(result["path"])
@@ -137,6 +140,8 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         repo_dir_name=actual_repo_dir_name
     )
     repos_db.append(repo_info)
+    
+    log_service.success(f"仓库添加成功: {repo_name} (发现 {len(yml_files)} 个 YML 文件)", 'system')
     
     return {
         "success": True,
@@ -163,6 +168,8 @@ def sync_repo(repo_name: str) -> Dict:
                 repo.last_sync = "刚刚"
                 repos_db[i] = repo
                 
+                log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个 YML 文件)", 'system')
+                
                 return {
                     "success": True,
                     "message": f"同步成功，发现 {len(repo.yml_files)} 个 YML 文件",
@@ -175,8 +182,10 @@ def sync_repo(repo_name: str) -> Dict:
                     }
                 }
             else:
+                log_service.error(f"仓库同步失败: {repo_name} - {result.get('message', '未知错误')}", 'system')
                 return result
     
+    log_service.warning(f"仓库不存在: {repo_name}", 'system')
     return {"success": False, "message": "仓库不存在", "status": "error"}
 
 def get_repo(repo_name: str) -> Optional[Dict]:
@@ -251,7 +260,9 @@ def delete_repo(repo_name: str) -> bool:
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
             repos_db.pop(i)
+            log_service.warning(f"仓库已删除: {repo_name}", 'system')
             return True
+    log_service.warning(f"删除仓库失败: {repo_name} - 仓库不存在", 'system')
     return False
 
 def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
@@ -276,13 +287,50 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                         env["https_proxy"] = proxy_config["https_proxy"]
                     
                     try:
-                        result = subprocess.run(
+                        deployment_logs = []
+                        
+                        deployment_logs.append(f"[部署开始] 正在处理文件: {yml_file.name}")
+                        deployment_logs.append(f"[部署开始] 文件路径: {yml_full_path}")
+                        
+                        pull_result = subprocess.run(
+                            ["docker-compose", "-f", str(yml_full_path), "pull"],
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                            env=env
+                        )
+                        
+                        if pull_result.stdout:
+                            for line in pull_result.stdout.strip().split('\n'):
+                                if line.strip():
+                                    deployment_logs.append(f"[镜像拉取] {line.strip()}")
+                        
+                        if pull_result.stderr:
+                            for line in pull_result.stderr.strip().split('\n'):
+                                if line.strip():
+                                    deployment_logs.append(f"[镜像拉取] {line.strip()}")
+                        
+                        deployment_logs.append("[部署阶段] 启动容器...")
+                        
+                        up_result = subprocess.run(
                             ["docker-compose", "-f", str(yml_full_path), "up", "-d"],
                             capture_output=True,
                             text=True,
                             timeout=120,
                             env=env
                         )
+                        
+                        if up_result.stdout:
+                            for line in up_result.stdout.strip().split('\n'):
+                                if line.strip():
+                                    deployment_logs.append(f"[启动日志] {line.strip()}")
+                        
+                        if up_result.stderr:
+                            for line in up_result.stderr.strip().split('\n'):
+                                if line.strip():
+                                    deployment_logs.append(f"[启动日志] {line.strip()}")
+                        
+                        result = up_result
                         
                         if result.returncode == 0:
                             container_id = None
@@ -313,6 +361,12 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                             
                             add_deployment(repo_name, yml_file.name, container_id, container_name, 'deployed', f'部署成功')
                             
+                            deployment_logs.append(f"[部署成功] 容器ID: {container_id}")
+                            deployment_logs.append(f"[部署成功] 容器名称: {container_name}")
+                            
+                            # 记录日志（包含详细部署日志）
+                            log_service.success(f"容器部署成功: {yml_file.name} (容器名: {container_name})", 'deploy', deployment_logs)
+                            
                             return {
                                 "success": True,
                                 "message": f"部署成功: {yml_file.name}",
@@ -322,11 +376,14 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                                     "file_path": yml_file.path,
                                     "status": "deployed",
                                     "output": result.stdout,
+                                    "detailed_logs": deployment_logs,
                                     "container_id": container_id,
                                     "container_name": container_name
                                 }
                             }
                         else:
+                            # 记录日志
+                            log_service.error(f"容器部署失败: {yml_file.name} - {result.stderr}", 'deploy')
                             return {
                                 "success": False,
                                 "message": f"部署失败: {result.stderr}",
@@ -339,6 +396,8 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                                 }
                             }
                     except subprocess.TimeoutExpired:
+                        # 记录日志
+                        log_service.error(f"容器部署超时: {yml_file.name}", 'deploy')
                         return {
                             "success": False,
                             "message": "部署超时",
@@ -350,6 +409,8 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                             }
                         }
                     except FileNotFoundError:
+                        # 记录日志
+                        log_service.error(f"docker-compose 命令未找到: {yml_file.name}", 'deploy')
                         return {
                             "success": False,
                             "message": "docker-compose 命令未找到，请确保已安装 Docker Compose",
@@ -361,6 +422,8 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                             }
                         }
                     except Exception as e:
+                        # 记录日志
+                        log_service.error(f"容器部署异常: {yml_file.name} - {str(e)}", 'deploy')
                         return {
                             "success": False,
                             "message": f"部署异常: {str(e)}",
@@ -530,8 +593,14 @@ def start_container(container_id: str) -> bool:
             text=True,
             timeout=60
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            log_service.success(f"容器启动成功: {container_id[:12]}", 'container')
+            return True
+        else:
+            log_service.error(f"容器启动失败: {container_id[:12]} - {result.stderr}", 'container')
+            return False
     except subprocess.TimeoutExpired:
+        log_service.error(f"容器启动超时: {container_id[:12]}", 'container')
         return False
     except FileNotFoundError:
         return False
@@ -546,8 +615,14 @@ def stop_container(container_id: str) -> bool:
             text=True,
             timeout=60
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            log_service.warning(f"容器已停止: {container_id[:12]}", 'container')
+            return True
+        else:
+            log_service.error(f"容器停止失败: {container_id[:12]} - {result.stderr}", 'container')
+            return False
     except subprocess.TimeoutExpired:
+        log_service.error(f"容器停止超时: {container_id[:12]}", 'container')
         return False
     except FileNotFoundError:
         return False
@@ -562,8 +637,14 @@ def restart_container(container_id: str) -> bool:
             text=True,
             timeout=60
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            log_service.success(f"容器重启成功: {container_id[:12]}", 'container')
+            return True
+        else:
+            log_service.error(f"容器重启失败: {container_id[:12]} - {result.stderr}", 'container')
+            return False
     except subprocess.TimeoutExpired:
+        log_service.error(f"容器重启超时: {container_id[:12]}", 'container')
         return False
     except FileNotFoundError:
         return False
@@ -582,8 +663,14 @@ def remove_container(container_id: str, force: bool = False) -> bool:
             text=True,
             timeout=60
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            log_service.warning(f"容器已删除: {container_id[:12]}", 'container')
+            return True
+        else:
+            log_service.error(f"容器删除失败: {container_id[:12]} - {result.stderr}", 'container')
+            return False
     except subprocess.TimeoutExpired:
+        log_service.error(f"容器删除超时: {container_id[:12]}", 'container')
         return False
     except FileNotFoundError:
         return False
@@ -661,14 +748,18 @@ def delete_image(image_id: str) -> Dict:
         )
         
         if result.returncode == 0:
+            log_service.warning(f"镜像已删除: {image_id}", 'image')
             return {"success": True, "message": "镜像删除成功"}
         else:
+            log_service.error(f"镜像删除失败: {image_id} - {result.stderr}", 'image')
             return {"success": False, "message": f"删除失败: {result.stderr}"}
     except subprocess.TimeoutExpired:
+        log_service.error(f"镜像删除超时: {image_id}", 'image')
         return {"success": False, "message": "删除操作超时"}
     except FileNotFoundError:
         return {"success": False, "message": "Docker命令不可用"}
     except Exception as e:
+        log_service.error(f"镜像删除异常: {image_id} - {str(e)}", 'image')
         return {"success": False, "message": f"删除失败: {str(e)}"}
 
 def search_dockerhub_images(query: str) -> list:
@@ -723,10 +814,13 @@ def pull_image(image_name: str) -> Dict:
         )
         
         if result.returncode == 0:
+            log_service.success(f"镜像拉取成功: {image_name}", 'image')
             return {"success": True, "message": f"镜像拉取成功: {image_name}"}
         else:
+            log_service.error(f"镜像拉取失败: {image_name} - {result.stderr}", 'image')
             return {"success": False, "message": f"拉取失败: {result.stderr}"}
     except subprocess.TimeoutExpired:
+        log_service.error(f"镜像拉取超时: {image_name}", 'image')
         return {"success": False, "message": "拉取操作超时"}
     except FileNotFoundError:
         return {"success": False, "message": "Docker命令不可用"}
@@ -836,13 +930,17 @@ def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
             return False
     
     if http_proxy and not validate_proxy(http_proxy):
+        log_service.error(f"代理配置失败: HTTP代理格式不正确", 'system')
         return {"success": False, "message": "HTTP代理格式不正确，请使用 http://ip:port 格式"}
     
     if https_proxy and not validate_proxy(https_proxy):
+        log_service.error(f"代理配置失败: HTTPS代理格式不正确", 'system')
         return {"success": False, "message": "HTTPS代理格式不正确，请使用 https://ip:port 格式"}
     
     proxy_config["http_proxy"] = http_proxy.strip() if http_proxy else ""
     proxy_config["https_proxy"] = https_proxy.strip() if https_proxy else ""
+    
+    log_service.info(f"代理配置已更新: HTTP={http_proxy or '无'}, HTTPS={https_proxy or '无'}", 'system')
     
     return {"success": True, "message": "代理配置已保存"}
 
