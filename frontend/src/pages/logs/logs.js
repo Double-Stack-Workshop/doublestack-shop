@@ -216,10 +216,13 @@ function getLevelIcon(level) {
 
 function getTypeText(type) {
     const types = {
+        'auth': '认证',
+        'file': '文件',
+        'system': '系统',
+        'query': '查询',
         'deploy': '部署',
         'container': '容器',
-        'image': '镜像',
-        'system': '系统'
+        'image': '镜像'
     };
     return types[type] || type;
 }
