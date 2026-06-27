@@ -42,6 +42,7 @@ from .database import (
     verify_admin_password,
     reset_admin_password
 )
+from .logger import log_service
 
 router = APIRouter(prefix="/api")
 
@@ -62,9 +63,11 @@ async def login(request: LoginRequest):
     user = get_user_by_username(request.username)
     
     if not user:
+        log_service.warning(f"用户登录失败: {request.username} - 用户不存在", 'auth')
         return {"success": False, "message": "用户名或密码错误"}
     
     if verify_password(request.password, user['password']):
+        log_service.success(f"用户登录成功: {request.username}", 'auth')
         return {
             "success": True,
             "message": "登录成功",
@@ -76,6 +79,7 @@ async def login(request: LoginRequest):
             }
         }
     
+    log_service.warning(f"用户登录失败: {request.username} - 密码错误", 'auth')
     return {"success": False, "message": "用户名或密码错误"}
 
 class RegisterRequest(BaseModel):
@@ -86,10 +90,14 @@ class RegisterRequest(BaseModel):
 @router.post("/register")
 async def register(request: RegisterRequest):
     if not verify_admin_password(request.admin_password):
+        log_service.warning(f"用户注册失败: {request.username} - 管理员密码错误", 'auth')
         return {"success": False, "message": "管理员密码不正确"}
     
     if create_user(request.username, request.password, None, is_admin=False):
+        log_service.success(f"用户注册成功: {request.username}", 'auth')
         return {"success": True, "message": "注册成功"}
+    
+    log_service.warning(f"用户注册失败: {request.username} - 用户名已存在", 'auth')
     return {"success": False, "message": "用户名已存在"}
 
 class ForgotPasswordRequest(BaseModel):
@@ -111,6 +119,7 @@ async def forgot_password(request: ForgotPasswordRequest):
 
 @router.get("/users")
 async def list_users():
+    log_service.info("获取用户列表", 'query')
     users = get_all_users()
     return [{
         "id": user['id'],
@@ -147,6 +156,7 @@ async def delete_user_endpoint(username: str):
 
 @router.get("/repos")
 async def list_repos():
+    log_service.info("获取仓库列表", 'query')
     return get_all_repos()
 
 @router.post("/repos")
@@ -177,6 +187,7 @@ async def sync_repo_endpoint(repo_name: str):
 async def list_repo_files(repo_name: str):
     files = get_repo_files(repo_name)
     if files is not None:
+        log_service.info(f"获取仓库文件列表: {repo_name}", 'file')
         return files
     raise HTTPException(status_code=404, detail="仓库不存在")
 
@@ -193,7 +204,9 @@ class SaveFileRequest(BaseModel):
 @router.put("/repos/{repo_name}/files/{file_name}")
 async def update_file_content(repo_name: str, file_name: str, request: SaveFileRequest):
     if save_file_content(repo_name, file_name, request.content):
+        log_service.success(f"文件保存成功: {repo_name}/{file_name}", 'file')
         return {"success": True, "message": "文件保存成功"}
+    log_service.warning(f"文件保存失败: {repo_name}/{file_name} - 文件不存在", 'file')
     raise HTTPException(status_code=404, detail="文件不存在")
 
 @router.delete("/repos/{repo_name}")
@@ -222,26 +235,31 @@ async def deploy_yml_endpoint(repo_name: str, file_path: str):
 
 @router.get("/containers/count")
 async def get_containers_count():
+    log_service.info("获取容器数量", 'query')
     count = get_running_containers_count()
     return {"count": count}
 
 @router.get("/deployments")
 async def list_deployments(limit: int = 10):
+    log_service.info(f"获取部署列表 (限制: {limit})", 'query')
     deployments = get_all_deployments(limit)
     return deployments
 
 @router.get("/deployments/count")
 async def get_deployed_apps_count_api():
+    log_service.info("获取部署数量", 'query')
     count = get_deployed_apps_count()
     return {"count": count}
 
 @router.get("/deployments/success-rate")
 async def get_deployment_success_rate_api():
+    log_service.info("获取部署成功率", 'query')
     rate = get_deployment_success_rate()
     return {"rate": rate}
 
 @router.get("/containers")
 async def list_containers():
+    log_service.info("获取容器列表", 'query')
     containers = get_all_containers()
     return containers
 
@@ -283,13 +301,16 @@ async def get_container_logs_endpoint(container_id: str, tail: int = 100):
 
 @router.get("/system/version")
 async def get_system_version():
+    log_service.info("获取系统版本信息", 'system')
     return {"current_version": VERSION, "build_date": BUILD_DATE}
 
 @router.get("/system/check-update")
 async def check_for_updates():
+    log_service.info("检查系统更新", 'system')
     latest_version = get_latest_dockerhub_version(DOCKERHUB_REPO)
     
     if not latest_version:
+        log_service.warning("无法连接到Docker Hub", 'system')
         return {
             "success": False,
             "message": "无法连接到Docker Hub",
@@ -300,6 +321,7 @@ async def check_for_updates():
     is_update_available = latest_version > VERSION
     
     if is_update_available:
+        log_service.info(f"发现新版本: {latest_version}", 'system')
         generate_update_script(latest_version)
     
     return {
@@ -407,6 +429,7 @@ echo "======================================"
 
 @router.get("/images")
 async def list_images():
+    log_service.info("获取镜像列表", 'query')
     images = get_all_images()
     return images
 
@@ -459,6 +482,7 @@ async def websocket_terminal(websocket: WebSocket):
 @router.get("/connectivity")
 async def check_connectivity():
     """测试网络连通性"""
+    log_service.info("测试网络连通性", 'system')
     result = test_all_connectivity()
     return result
 
@@ -477,6 +501,61 @@ async def update_proxy(request: ProxyRequest):
     """更新代理配置"""
     result = set_proxy_config(request.http_proxy, request.https_proxy)
     return result
+
+# Docker 加速源相关路由
+import json
+from pathlib import Path
+
+DAEMON_JSON_PATH = Path("/etc/docker/daemon.json")
+
+@router.get("/docker-mirrors")
+async def get_docker_mirrors():
+    """获取 Docker 加速源配置"""
+    try:
+        if DAEMON_JSON_PATH.exists():
+            with open(DAEMON_JSON_PATH, 'r') as f:
+                config = json.load(f)
+                mirrors = config.get("registry-mirrors", [])
+                log_service.info("获取 Docker 加速源配置", 'system')
+                return {"success": True, "mirrors": mirrors}
+        else:
+            return {"success": True, "mirrors": []}
+    except Exception as e:
+        log_service.error(f"获取 Docker 加速源配置失败: {str(e)}", 'system')
+        return {"success": False, "message": f"读取配置失败: {str(e)}", "mirrors": []}
+
+class DockerMirrorsRequest(BaseModel):
+    mirrors: list[str]
+
+@router.put("/docker-mirrors")
+async def update_docker_mirrors(request: DockerMirrorsRequest):
+    """更新 Docker 加速源配置"""
+    try:
+        # 读取现有配置
+        config = {}
+        if DAEMON_JSON_PATH.exists():
+            with open(DAEMON_JSON_PATH, 'r') as f:
+                config = json.load(f)
+        
+        # 更新加速源
+        config["registry-mirrors"] = request.mirrors
+        
+        # 写回配置文件
+        with open(DAEMON_JSON_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        log_service.success(f"更新 Docker 加速源配置: {len(request.mirrors)} 个加速源", 'system')
+        return {
+            "success": True, 
+            "message": "配置已保存，需重启 Docker 服务生效",
+            "mirrors": request.mirrors
+        }
+    except PermissionError:
+        log_service.error("更新 Docker 加速源配置失败: 权限不足", 'system')
+        return {"success": False, "message": "权限不足，请确保容器以正确权限运行"}
+    except Exception as e:
+        log_service.error(f"更新 Docker 加速源配置失败: {str(e)}", 'system')
+        return {"success": False, "message": f"保存配置失败: {str(e)}"}
 
 # 日志相关路由
 @router.get("/logs")

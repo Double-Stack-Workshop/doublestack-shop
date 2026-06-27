@@ -14,6 +14,7 @@ services:
       - ./backend/scripts:/app/scripts
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
+      - /etc/docker:/etc/docker:rw
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro
     environment:

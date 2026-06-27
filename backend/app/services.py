@@ -8,12 +8,61 @@ from .logger import log_service
 REPOS_DIR = Path("./repos")
 REPOS_DIR.mkdir(exist_ok=True)
 
-repos_db: List[RepoInfo] = []
+from .database import (
+    get_all_repos_from_db,
+    add_repo_to_db,
+    update_repo_in_db,
+    delete_repo_from_db,
+    get_repo_by_name_from_db,
+    get_proxy_config as db_get_proxy_config,
+    set_proxy_config as db_set_proxy_config,
+    get_images_cache,
+    update_images_cache
+)
 
-proxy_config: Dict = {
-    "http_proxy": "",
-    "https_proxy": ""
-}
+# 初始化：从数据库加载仓库信息
+repos_db: List[RepoInfo] = []
+_repos_loaded = False
+
+def _load_repos_from_db():
+    global repos_db, _repos_loaded
+    if _repos_loaded:
+        return
+    
+    try:
+        db_repos = get_all_repos_from_db()
+        for repo in db_repos:
+            yml_files = []
+            if repo.get('yml_files'):
+                for f in repo['yml_files']:
+                    yml_files.append(YmlFile(
+                        name=f['name'],
+                        path=f['path'],
+                        content=f.get('content', '')
+                    ))
+            
+            repo_info = RepoInfo(
+                name=repo['name'],
+                url=repo['url'],
+                branch=repo['branch'],
+                local_path=repo.get('local_path', ''),
+                yml_files=yml_files,
+                last_sync=repo.get('last_sync'),
+                status=repo.get('status', 'active'),
+                repo_dir_name=repo.get('repo_dir_name', repo['name'])
+            )
+            repos_db.append(repo_info)
+        _repos_loaded = True
+    except Exception as e:
+        print(f"从数据库加载仓库信息失败: {e}")
+
+# 延迟加载仓库
+def _ensure_repos_loaded():
+    if not _repos_loaded:
+        _load_repos_from_db()
+
+# 初始化代理配置
+proxy_config: Dict = db_get_proxy_config()
 
 def get_repo_name_from_url(url: str) -> str:
     return url.rstrip('/').split('/')[-1].replace('.git', '')
@@ -98,6 +147,7 @@ def scan_yml_files(repo_dir: Path) -> List[YmlFile]:
     return yml_files
 
 def get_all_repos() -> List[Dict]:
+    _ensure_repos_loaded()
     return [
         {
             "name": repo.name,
@@ -112,6 +162,7 @@ def get_all_repos() -> List[Dict]:
     ]
 
 def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = None) -> Dict:
+    _ensure_repos_loaded()
     repo_name = name if name else get_repo_name_from_url(repo_url)
     actual_repo_dir_name = get_repo_name_from_url(repo_url)
     
@@ -141,6 +192,12 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
     )
     repos_db.append(repo_info)
     
+    # 保存到数据库
+    try:
+        add_repo_to_db(repo_name, repo_url, branch, local_path, actual_repo_dir_name, yml_files, "刚刚", "active")
+    except Exception as e:
+        print(f"保存仓库到数据库失败: {e}")
+    
     log_service.success(f"仓库添加成功: {repo_name} (发现 {len(yml_files)} 个 YML 文件)", 'system')
     
     return {
@@ -157,6 +214,7 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
     }
 
 def sync_repo(repo_name: str) -> Dict:
+    _ensure_repos_loaded()
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
             result = clone_or_pull_repo(repo.url, repo.branch, repo.local_path)
@@ -167,6 +225,12 @@ def sync_repo(repo_name: str) -> Dict:
                 repo.status = "active"
                 repo.last_sync = "刚刚"
                 repos_db[i] = repo
+                
+                # 更新数据库
+                try:
+                    update_repo_in_db(repo_name, yml_files=repo.yml_files, last_sync="刚刚", status="active")
+                except Exception as e:
+                    print(f"更新仓库数据库失败: {e}")
                 
                 log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个 YML 文件)", 'system')
                 
@@ -189,6 +253,7 @@ def sync_repo(repo_name: str) -> Dict:
     return {"success": False, "message": "仓库不存在", "status": "error"}
 
 def get_repo(repo_name: str) -> Optional[Dict]:
+    _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
             return {
@@ -206,6 +271,7 @@ def get_repo(repo_name: str) -> Optional[Dict]:
     return None
 
 def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
+    _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
             actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
@@ -216,8 +282,8 @@ def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
                     if file_full_path.exists():
                         import os
                         mtime = file_full_path.stat().st_mtime
-                        from datetime import datetime
-                        last_modified = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        from datetime import datetime, timezone, timedelta
+                        last_modified = datetime.fromtimestamp(mtime, timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
                     else:
                         last_modified = repo.last_sync or '未知'
                     
@@ -230,6 +296,7 @@ def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
     return None
 
 def get_repo_files(repo_name: str) -> Optional[List[Dict]]:
+    _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
             return [
@@ -239,6 +306,7 @@ def get_repo_files(repo_name: str) -> Optional[List[Dict]]:
     return None
 
 def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
+    _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
             actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
@@ -250,6 +318,11 @@ def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
                         with open(file_path, 'w', encoding='utf-8') as f:
                             f.write(content)
                         repo.yml_files[i].content = content
+                        # 更新数据库
+                        try:
+                            update_repo_in_db(repo_name, yml_files=repo.yml_files)
+                        except Exception as e:
+                            print(f"更新仓库数据库失败: {e}")
                         return True
                     except Exception as e:
                         print(f"保存文件失败: {e}")
@@ -257,9 +330,15 @@ def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
     return False
 
 def delete_repo(repo_name: str) -> bool:
+    _ensure_repos_loaded()
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
             repos_db.pop(i)
+            # 从数据库删除
+            try:
+                delete_repo_from_db(repo_name)
+            except Exception as e:
+                print(f"从数据库删除仓库失败: {e}")
             log_service.warning(f"仓库已删除: {repo_name}", 'system')
             return True
     log_service.warning(f"删除仓库失败: {repo_name} - 仓库不存在", 'system')
@@ -563,6 +642,7 @@ def get_container_by_id(container_id: str) -> dict:
             created_at = data['Created']
             if created_at:
                 created_dt = datetime.datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                created_dt = created_dt.astimezone(datetime.timezone(datetime.timedelta(hours=8)))
                 created_at = created_dt.strftime('%Y-%m-%d %H:%M:%S')
             
             return {
@@ -677,7 +757,18 @@ def remove_container(container_id: str, force: bool = False) -> bool:
     except Exception:
         return False
 
-def get_all_images() -> list:
+def get_all_images(use_cache=True) -> list:
+    """获取所有镜像列表，支持缓存"""
+    # 如果使用缓存，尝试从数据库读取
+    if use_cache:
+        try:
+            cached = get_images_cache()
+            if cached:
+                return cached
+        except Exception as e:
+            print(f"读取镜像缓存失败: {e}")
+    
+    # 从 Docker 获取
     try:
         result = subprocess.run(
             ["docker", "images", "--filter", "dangling=false", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedSince}}|{{.CreatedAt}}"],
@@ -713,6 +804,13 @@ def get_all_images() -> list:
                             'created_since': created_since,
                             'created_at': created_at
                         })
+            
+            # 更新缓存
+            try:
+                update_images_cache(images)
+            except Exception as e:
+                print(f"更新镜像缓存失败: {e}")
+            
             return images
         else:
             return []
@@ -722,6 +820,10 @@ def get_all_images() -> list:
         return []
     except Exception:
         return []
+
+def refresh_images_cache() -> list:
+    """强制刷新镜像缓存"""
+    return get_all_images(use_cache=False)
 
 def parse_size(size_str: str) -> int:
     try:
@@ -748,6 +850,11 @@ def delete_image(image_id: str) -> Dict:
         )
         
         if result.returncode == 0:
+            # 刷新缓存
+            try:
+                refresh_images_cache()
+            except Exception as e:
+                print(f"刷新镜像缓存失败: {e}")
             log_service.warning(f"镜像已删除: {image_id}", 'image')
             return {"success": True, "message": "镜像删除成功"}
         else:
@@ -814,6 +921,11 @@ def pull_image(image_name: str) -> Dict:
         )
         
         if result.returncode == 0:
+            # 刷新缓存
+            try:
+                refresh_images_cache()
+            except Exception as e:
+                print(f"刷新镜像缓存失败: {e}")
             log_service.success(f"镜像拉取成功: {image_name}", 'image')
             return {"success": True, "message": f"镜像拉取成功: {image_name}"}
         else:
@@ -939,6 +1051,12 @@ def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
     
     proxy_config["http_proxy"] = http_proxy.strip() if http_proxy else ""
     proxy_config["https_proxy"] = https_proxy.strip() if https_proxy else ""
+    
+    # 保存到数据库
+    try:
+        db_set_proxy_config(proxy_config["http_proxy"], proxy_config["https_proxy"])
+    except Exception as e:
+        print(f"保存代理配置到数据库失败: {e}")
     
     log_service.info(f"代理配置已更新: HTTP={http_proxy or '无'}, HTTPS={https_proxy or '无'}", 'system')
     

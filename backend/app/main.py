@@ -2,11 +2,14 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .routes import router
-from .database import init_db
-from .services import add_repo, get_all_repos
 
+# 先初始化数据库，确保表已创建
+from .database import init_db
 init_db()
+
+# 现在可以安全地导入其他模块
+from .routes import router
+from .services import add_repo, get_all_repos
 
 DEFAULT_REPO = {
     "name": "飞牛容器仓库",

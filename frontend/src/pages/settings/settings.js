@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadUserInfo();
     loadVersion();
     loadProxyConfig();
+    loadDockerMirrors();
     
     addUserBtn.addEventListener('click', function() {
         addUserModal.classList.add('active');
@@ -338,6 +339,197 @@ async function saveProxyConfig() {
         
         if (result.success) {
             showMessage('代理配置保存成功', 'success');
+        } else {
+            showMessage(result.message || '保存失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
+    }
+}
+
+// Docker 加速源管理
+let dockerMirrors = [];
+
+async function loadDockerMirrors() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/docker-mirrors`);
+        if (response.ok) {
+            const result = await response.json();
+            dockerMirrors = result.mirrors || [];
+            renderMirrors();
+        } else {
+            renderMirrors();
+        }
+    } catch (error) {
+        console.error('Failed to load docker mirrors:', error);
+        renderMirrors();
+    }
+}
+
+function renderMirrors() {
+    const listEl = document.getElementById('mirrorList');
+    
+    if (!dockerMirrors || dockerMirrors.length === 0) {
+        listEl.innerHTML = '<div class="mirror-empty">暂无加速源配置</div>';
+        return;
+    }
+    
+    listEl.innerHTML = dockerMirrors.map((mirror, index) => `
+        <div class="mirror-item" draggable="true" data-index="${index}" 
+             ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">
+            <span class="mirror-drag-handle"><i class="fas fa-grip-vertical"></i></span>
+            <span class="mirror-url">${escapeHtml(mirror)}</span>
+            <div class="mirror-actions">
+                <button class="edit-btn" onclick="editMirror(${index})">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="delete-btn" onclick="deleteMirror(${index})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 拖拽排序功能
+let draggedIndex = null;
+
+function handleDragStart(event) {
+    draggedIndex = parseInt(event.target.dataset.index);
+    event.target.classList.add('dragging');
+    event.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragEnd(event) {
+    event.target.classList.remove('dragging');
+    document.querySelectorAll('.mirror-item').forEach(item => {
+        item.classList.remove('drag-over');
+    });
+}
+
+function handleDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+}
+
+function handleDrop(event) {
+    event.preventDefault();
+    
+    const target = event.target.closest('.mirror-item');
+    if (!target || draggedIndex === null) return;
+    
+    const targetIndex = parseInt(target.dataset.index);
+    
+    if (draggedIndex !== targetIndex) {
+        const movedItem = dockerMirrors.splice(draggedIndex, 1)[0];
+        dockerMirrors.splice(targetIndex, 0, movedItem);
+        renderMirrors();
+        showMessage('顺序已调整，请点击保存配置', 'success');
+    }
+    
+    draggedIndex = null;
+}
+
+function addMirror() {
+    const input = document.getElementById('newMirror');
+    const url = input.value.trim();
+    
+    if (!url) {
+        showMessage('请输入加速源地址', 'error');
+        return;
+    }
+    
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        showMessage('加速源地址必须以 http:// 或 https:// 开头', 'error');
+        return;
+    }
+    
+    if (dockerMirrors.includes(url)) {
+        showMessage('该加速源已存在', 'error');
+        return;
+    }
+    
+    dockerMirrors.push(url);
+    renderMirrors();
+    input.value = '';
+    showMessage('加速源已添加，请点击保存配置', 'success');
+}
+
+function addPresetMirror(url) {
+    if (dockerMirrors.includes(url)) {
+        showMessage('该加速源已存在', 'error');
+        return;
+    }
+    
+    dockerMirrors.push(url);
+    renderMirrors();
+    showMessage('加速源已添加，请点击保存配置', 'success');
+}
+
+function editMirror(index) {
+    const currentUrl = dockerMirrors[index];
+    const newUrl = prompt('编辑加速源地址:', currentUrl);
+    
+    if (newUrl === null) return;
+    
+    const trimmedUrl = newUrl.trim();
+    if (!trimmedUrl) {
+        showMessage('加速源地址不能为空', 'error');
+        return;
+    }
+    
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+        showMessage('加速源地址必须以 http:// 或 https:// 开头', 'error');
+        return;
+    }
+    
+    if (trimmedUrl !== currentUrl && dockerMirrors.includes(trimmedUrl)) {
+        showMessage('该加速源已存在', 'error');
+        return;
+    }
+    
+    dockerMirrors[index] = trimmedUrl;
+    renderMirrors();
+    showMessage('加速源已修改，请点击保存配置', 'success');
+}
+
+function deleteMirror(index) {
+    if (!confirm('确定要删除该加速源吗？')) {
+        return;
+    }
+    
+    dockerMirrors.splice(index, 1);
+    renderMirrors();
+    showMessage('加速源已删除，请点击保存配置', 'success');
+}
+
+async function saveDockerMirrors() {
+    const btn = document.getElementById('saveMirrorBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/docker-mirrors`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ mirrors: dockerMirrors })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showMessage('配置已保存，请在宿主机执行以下命令重启 Docker：\n\nsystemctl restart docker\n# 或\nservice docker restart', 'success');
         } else {
             showMessage(result.message || '保存失败', 'error');
         }

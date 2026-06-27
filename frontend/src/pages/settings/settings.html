@@ -72,6 +72,39 @@
                 </div>
             </section>
             
+            <section class="mirror-section">
+                <div class="section-header">
+                    <h2>Docker 加速源</h2>
+                    <button id="saveMirrorBtn" class="save-btn" onclick="saveDockerMirrors()">
+                        <i class="fas fa-save"></i>
+                        <span>保存配置</span>
+                    </button>
+                </div>
+                
+                <div class="mirror-card">
+                    <div class="mirror-info">
+                        <div class="mirror-list" id="mirrorList" class="drag-list" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                            <div class="mirror-empty">加载中...</div>
+                        </div>
+                        <div class="mirror-add-form">
+                            <input type="text" id="newMirror" placeholder="https://mirror.example.com">
+                            <button class="add-mirror-btn" onclick="addMirror()">
+                                <i class="fas fa-plus"></i>
+                                添加
+                            </button>
+                        </div>
+                        <div class="mirror-tips">
+                            <i class="fas fa-info-circle"></i>
+                            常用加速源：
+                            <a href="javascript:void(0)" onclick="addPresetMirror('https://mirror.ccs.tencentyun.com')">腾讯云</a> |
+                            <a href="javascript:void(0)" onclick="addPresetMirror('https://hub-mirror.c.163.com')">网易</a> |
+                            <a href="javascript:void(0)" onclick="addPresetMirror('https://docker.mirrors.ustc.edu.cn')">中科大</a> |
+                            <a href="javascript:void(0)" onclick="addPresetMirror('https://registry.docker-cn.com')">Docker CN</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
             <section class="user-management">
                     <div class="section-header">
                         <h2>用户管理</h2>
