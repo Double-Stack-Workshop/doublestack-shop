@@ -210,6 +210,7 @@ function navigateTo(page) {
         'repository': '../repository/repository.html',
         'deploy': '../deploy/deploy.html',
         'container': '../container/container.html',
+        'backup': '../backup/backup.html',
         'settings': '../settings/settings.html'
     };
     

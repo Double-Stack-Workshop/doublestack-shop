@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 容器备份</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/backup/backup.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="backup-container" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>容器备份</h1>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <img src="/src/images/logo.png" alt="用户头像">
+                        </div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <section class="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-icon total">
+                            <i class="fab fa-docker"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="totalCount">0</span>
+                            <span class="stat-label">总容器</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-icon running">
+                            <i class="fas fa-play"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="runningCount">0</span>
+                            <span class="stat-label">运行中</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-icon backed">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="backedCount">0</span>
+                            <span class="stat-label">已备份</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-icon unbacked">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="unbackedCount">0</span>
+                            <span class="stat-label">未备份</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-icon success">
+                            <i class="fas fa-check"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="successCount">0</span>
+                            <span class="stat-label">备份成功</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="backups-grid">
+                    <div class="filter-bar">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchInput" placeholder="搜索容器名称..." onkeyup="filterContainers()">
+                        </div>
+                    </div>
+
+                    <div class="containers-list" id="containersList">
+                        <div class="empty-state">
+                            <i class="fab fa-docker"></i>
+                            <p>暂无容器数据</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="backups-grid">
+                    <div class="restore-content">
+                        <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('restoreFile').click()">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <p>点击或拖拽上传 .tar 备份文件</p>
+                            <input type="file" id="restoreFile" accept=".tar" onchange="handleRestoreFileSelect(event)">
+                        </div>
+                        <div class="restore-info" id="restoreInfo" style="display: none;">
+                            <div class="info-row">
+                                <span class="info-label">文件名</span>
+                                <span class="info-value" id="restoreFileName">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">文件大小</span>
+                                <span class="info-value" id="restoreFileSize">-</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" id="restoreBtn" onclick="performRestore()" disabled>
+                            <i class="fas fa-play"></i>
+                            开始恢复
+                        </button>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="createBackupModalOverlay" style="display: none;">
+        <div class="modal" id="createBackupModal">
+            <div class="modal-header">
+                <h3>创建容器备份</h3>
+                <button class="close-btn" onclick="closeCreateBackupModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>容器名称</label>
+                    <input type="text" id="containerNameDisplay" class="form-control" readonly>
+                </div>
+                <div class="form-group">
+                    <label>备份名称</label>
+                    <input type="text" id="backupName" class="form-control" readonly>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">备份内容</span>
+                    <span class="detail-value">镜像文件 + 容器配置 + 数据卷</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCreateBackupModal()">取消</button>
+                <button class="btn btn-primary" onclick="createBackup()">
+                    <i class="fas fa-save"></i>
+                    创建备份
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="backupDetailModalOverlay" style="display: none;">
+        <div class="modal" id="backupDetailModal">
+            <div class="modal-header">
+                <h3 id="detailModalTitle">备份详情</h3>
+                <button class="close-btn" onclick="closeBackupDetailModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="detailModalBody">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" onclick="deleteBackup()" id="deleteBackupBtn">
+                    <i class="fas fa-trash"></i>
+                    删除备份
+                </button>
+                <button class="btn btn-secondary" onclick="closeBackupDetailModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="./backup.js"></script>
+</body>
+</html>

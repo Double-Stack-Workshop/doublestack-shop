@@ -98,6 +98,19 @@ def init_db():
         )
     ''')
     
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_id TEXT NOT NULL,
+            container_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            size INTEGER,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        )
+    ''')
+    
     cursor.execute("SELECT COUNT(*) FROM users")
     count = cursor.fetchone()[0]
     
@@ -712,3 +725,134 @@ def clear_images_cache():
         pass
     
     conn.close()
+
+# ============ 备份相关函数 ============
+
+def add_backup(container_id, container_name, name, file_path, size=0, status='success'):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        now = get_utc8_now_str()
+        cursor.execute('''
+            INSERT INTO backups (container_id, container_name, name, file_path, size, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (container_id, container_name, name, file_path, size, status, now))
+        
+        conn.commit()
+        backup_id = cursor.lastrowid
+        return backup_id
+    finally:
+        conn.close()
+
+def get_all_backups():
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT * FROM backups ORDER BY created_at DESC')
+        backups = cursor.fetchall()
+    except sqlite3.OperationalError:
+        backups = []
+    
+    conn.close()
+    
+    return [{
+        'id': b[0],
+        'container_id': b[1],
+        'container_name': b[2],
+        'name': b[3],
+        'file_path': b[4],
+        'size': b[5],
+        'status': b[6],
+        'created_at': b[7]
+    } for b in backups]
+
+def get_backups_by_container(container_name):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT * FROM backups WHERE container_name = ? ORDER BY created_at DESC', (container_name,))
+        backups = cursor.fetchall()
+    except sqlite3.OperationalError:
+        backups = []
+    
+    conn.close()
+    
+    return [{
+        'id': b[0],
+        'container_id': b[1],
+        'container_name': b[2],
+        'name': b[3],
+        'file_path': b[4],
+        'size': b[5],
+        'status': b[6],
+        'created_at': b[7]
+    } for b in backups]
+
+def delete_backup_by_id(backup_id):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT file_path FROM backups WHERE id = ?', (backup_id,))
+        result = cursor.fetchone()
+        file_path = result[0] if result else None
+        
+        cursor.execute('DELETE FROM backups WHERE id = ?', (backup_id,))
+        conn.commit()
+        
+        success = cursor.rowcount > 0
+        return success, file_path
+    finally:
+        conn.close()
+
+def get_backup_by_id(backup_id):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('SELECT * FROM backups WHERE id = ?', (backup_id,))
+        backup = cursor.fetchone()
+    except sqlite3.OperationalError:
+        backup = None
+    
+    conn.close()
+    
+    if backup:
+        return {
+            'id': backup[0],
+            'container_id': backup[1],
+            'container_name': backup[2],
+            'name': backup[3],
+            'file_path': backup[4],
+            'size': backup[5],
+            'status': backup[6],
+            'created_at': backup[7]
+        }
+    return None
+
+def update_backup_status(backup_id, status, size=0):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        updates = []
+        params = []
+        
+        updates.append("status = ?")
+        params.append(status)
+        
+        if size > 0:
+            updates.append("size = ?")
+            params.append(size)
+        
+        params.append(backup_id)
+        
+        cursor.execute(f'UPDATE backups SET {", ".join(updates)} WHERE id = ?', params)
+        conn.commit()
+        
+        return cursor.rowcount > 0
+    finally:
+        conn.close()

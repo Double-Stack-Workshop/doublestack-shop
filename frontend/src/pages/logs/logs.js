@@ -222,7 +222,8 @@ function getTypeText(type) {
         'query': '查询',
         'deploy': '部署',
         'container': '容器',
-        'image': '镜像'
+        'image': '镜像',
+        'backup': '备份'
     };
     return types[type] || type;
 }

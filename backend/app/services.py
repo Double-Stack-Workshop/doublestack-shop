@@ -1,5 +1,7 @@
 import subprocess
 import os
+import shutil
+import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 from .schemas import YmlFile, RepoInfo
@@ -1100,3 +1102,374 @@ def get_container_logs(container_id: str, tail: int = 100) -> str:
         return "Docker命令不可用"
     except Exception as e:
         return f"获取日志失败: {str(e)}"
+
+# ============ 容器备份相关函数 ============
+
+BACKUPS_DIR = Path("/app/backup")
+BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+VOLUMES_DIR = Path("/host/var/lib/docker/volumes")
+
+from .database import (
+    add_backup,
+    get_all_backups,
+    get_backups_by_container,
+    delete_backup_by_id,
+    get_backup_by_id as db_get_backup_by_id,
+    update_backup_status
+)
+
+def get_container_mounts(container_id: str) -> list:
+    """获取容器的挂载信息"""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", container_id],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            import json
+            data = json.loads(result.stdout)[0]
+            mounts = data.get('Mounts', [])
+            return mounts
+        else:
+            return []
+    except Exception:
+        return []
+
+def save_image(container_id: str, backup_dir: Path) -> tuple:
+    """保存容器镜像"""
+    try:
+        container_info = get_container_by_id(container_id)
+        if not container_info:
+            return False, "无法获取容器信息"
+        
+        image_name = container_info.get('image', '')
+        if not image_name:
+            return False, "无法获取容器镜像名称"
+        
+        image_path = backup_dir / "image.tar"
+        
+        result = subprocess.run(
+            ["docker", "save", "-o", str(image_path), image_name],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode == 0:
+            return True, str(image_path)
+        else:
+            return False, f"保存镜像失败: {result.stderr}"
+    except subprocess.TimeoutExpired:
+        return False, "保存镜像超时"
+    except FileNotFoundError:
+        return False, "Docker命令不可用"
+    except Exception as e:
+        return False, f"保存镜像异常: {str(e)}"
+
+def export_config(container_id: str, backup_dir: Path) -> tuple:
+    """导出容器配置"""
+    try:
+        config_path = backup_dir / "container-config.json"
+        
+        result = subprocess.run(
+            ["docker", "inspect", container_id],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            with open(config_path, 'w') as f:
+                f.write(result.stdout)
+            return True, str(config_path)
+        else:
+            return False, f"导出配置失败: {result.stderr}"
+    except Exception as e:
+        return False, f"导出配置异常: {str(e)}"
+
+def pack_volumes(container_id: str, backup_dir: Path) -> tuple:
+    """打包所有挂载卷"""
+    try:
+        mounts = get_container_mounts(container_id)
+        if not mounts:
+            return True, []
+        
+        packed_volumes = []
+        
+        for mount in mounts:
+            mount_type = mount.get('Type', '')
+            name = mount.get('Name', '')
+            source = mount.get('Source', '')
+            destination = mount.get('Destination', '')
+            
+            if not source:
+                continue
+            
+            if mount_type == 'volume':
+                volume_path = VOLUMES_DIR / name / "_data"
+                if volume_path.exists():
+                    volume_tar = backup_dir / f"volume-{name}.tar.gz"
+                    result = subprocess.run(
+                        ["tar", "-czvf", str(volume_tar), "-C", str(volume_path.parent), "_data"],
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+                    if result.returncode == 0:
+                        packed_volumes.append({
+                            'name': name,
+                            'type': 'volume',
+                            'source': str(volume_path),
+                            'destination': destination,
+                            'file': str(volume_tar)
+                        })
+                    else:
+                        log_service.warning(f"打包命名卷失败: {name} - {result.stderr}", 'backup')
+            
+            elif mount_type == 'bind':
+                basename = os.path.basename(source)
+                if not basename or basename == '/':
+                    log_service.warning(f"跳过无效的绑定挂载: {source}", 'backup')
+                    continue
+                
+                bind_tar = backup_dir / f"bind-{basename}.tar.gz"
+                dirname = os.path.dirname(source)
+                if not dirname or dirname == '/':
+                    dirname = '/'
+                
+                host_source = Path("/host") / source.lstrip('/')
+                if not host_source.exists():
+                    log_service.warning(f"绑定挂载路径不存在: {host_source}", 'backup')
+                    continue
+                
+                host_dirname = os.path.dirname(str(host_source))
+                if not host_dirname or host_dirname == '/':
+                    host_dirname = '/'
+                
+                result = subprocess.run(
+                    ["tar", "-czvf", str(bind_tar), "-C", host_dirname, basename],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode == 0:
+                    packed_volumes.append({
+                        'name': basename,
+                        'type': 'bind',
+                        'source': source,
+                        'destination': destination,
+                        'file': str(bind_tar)
+                    })
+                else:
+                    log_service.warning(f"打包绑定挂载失败: {source} - {result.stderr}", 'backup')
+        
+        return True, packed_volumes
+    except Exception as e:
+        return False, f"打包卷异常: {str(e)}"
+
+def create_container_backup(container_id: str) -> Dict:
+    """创建容器完整备份"""
+    try:
+        container_info = get_container_by_id(container_id)
+        if not container_info:
+            return {"success": False, "message": "容器不存在"}
+        
+        container_name = container_info.get('name', '')
+        backup_name = f"{container_name}-backup"
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = BACKUPS_DIR / f"{backup_name}-{timestamp}"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_service.info(f"开始创建容器备份: {container_name}", 'backup')
+        
+        was_running = container_info.get('status') == 'running'
+        
+        if was_running:
+            subprocess.run(["docker", "stop", container_id], capture_output=True)
+            log_service.info(f"备份前停止容器: {container_name}", 'backup')
+        
+        steps = []
+        
+        success, result = save_image(container_id, backup_dir)
+        if not success:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            if was_running:
+                subprocess.run(["docker", "start", container_id], capture_output=True)
+            return {"success": False, "message": result}
+        steps.append("镜像保存成功")
+        log_service.info(f"镜像保存成功: {container_name}", 'backup')
+        
+        success, result = export_config(container_id, backup_dir)
+        if not success:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            if was_running:
+                subprocess.run(["docker", "start", container_id], capture_output=True)
+            return {"success": False, "message": result}
+        steps.append("配置导出成功")
+        log_service.info(f"配置导出成功: {container_name}", 'backup')
+        
+        success, volumes = pack_volumes(container_id, backup_dir)
+        if not success:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            if was_running:
+                subprocess.run(["docker", "start", container_id], capture_output=True)
+            return {"success": False, "message": volumes}
+        steps.append(f"卷打包成功 ({len(volumes)} 个)")
+        log_service.info(f"卷打包成功: {container_name} ({len(volumes)} 个)", 'backup')
+        
+        archive_path = BACKUPS_DIR / f"{backup_name}-{timestamp}.tar"
+        
+        result = subprocess.run(
+            ["tar", "-cf", str(archive_path), "-C", str(BACKUPS_DIR), f"{backup_name}-{timestamp}"],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode != 0:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            return {"success": False, "message": f"归档失败: {result.stderr}"}
+        
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        
+        if was_running:
+            subprocess.run(["docker", "start", container_id], capture_output=True)
+            log_service.info(f"备份完成后重启容器: {container_name}", 'backup')
+        
+        backup_size = os.path.getsize(archive_path)
+        
+        backup_id = add_backup(
+            container_id=container_id,
+            container_name=container_name,
+            name=backup_name,
+            file_path=str(archive_path),
+            size=backup_size,
+            status='success'
+        )
+        
+        log_service.success(f"容器备份创建成功: {container_name}", 'backup')
+        
+        return {
+            "success": True,
+            "message": "备份创建成功",
+            "data": {
+                "id": backup_id,
+                "name": backup_name,
+                "container_name": container_name,
+                "container_id": container_id,
+                "file_path": str(archive_path),
+                "size": backup_size,
+                "created_at": datetime.datetime.now().isoformat(),
+                "steps": steps
+            }
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "备份操作超时"}
+    except Exception as e:
+        log_service.error(f"容器备份失败: {container_id} - {str(e)}", 'backup')
+        return {"success": False, "message": f"备份失败: {str(e)}"}
+
+def get_all_backups_list() -> list:
+    """获取所有备份列表"""
+    try:
+        return get_all_backups()
+    except Exception as e:
+        log_service.error(f"获取备份列表失败: {str(e)}", 'backup')
+        return []
+
+def get_backups_for_container(container_name: str) -> list:
+    """获取指定容器的备份列表"""
+    try:
+        return get_backups_by_container(container_name)
+    except Exception as e:
+        log_service.error(f"获取容器备份列表失败: {container_name} - {str(e)}", 'backup')
+        return []
+
+def get_backup_by_id(backup_id: int) -> dict:
+    """获取单个备份详情"""
+    try:
+        return db_get_backup_by_id(backup_id)
+    except Exception as e:
+        log_service.error(f"获取备份详情失败: {backup_id} - {str(e)}", 'backup')
+        return None
+
+def remove_backup(backup_id: int) -> Dict:
+    """删除备份"""
+    try:
+        success, file_path = delete_backup_by_id(backup_id)
+        
+        if success and file_path and os.path.exists(file_path):
+            os.remove(file_path)
+        
+        if success:
+            log_service.warning(f"备份已删除: ID={backup_id}", 'backup')
+            return {"success": True, "message": "备份删除成功"}
+        else:
+            return {"success": False, "message": "备份不存在"}
+    except Exception as e:
+        log_service.error(f"删除备份失败: {backup_id} - {str(e)}", 'backup')
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+def restore_backup(backup_id: int) -> Dict:
+    """恢复备份"""
+    try:
+        backup = get_backup_by_id(backup_id)
+        if not backup:
+            return {"success": False, "message": "备份不存在"}
+        
+        archive_path = backup.get('file_path', '')
+        if not archive_path or not os.path.exists(archive_path):
+            return {"success": False, "message": "备份文件不存在"}
+        
+        container_name = backup.get('container_name', '')
+        
+        restore_dir = BACKUPS_DIR / f"restore-{container_name}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        restore_dir.mkdir(parents=True, exist_ok=True)
+        
+        result = subprocess.run(
+            ["tar", "-xf", archive_path, "-C", str(restore_dir)],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode != 0:
+            shutil.rmtree(restore_dir, ignore_errors=True)
+            return {"success": False, "message": f"解压备份失败: {result.stderr}"}
+        
+        image_path = restore_dir / f"{container_name}-backup" / "image.tar"
+        config_path = restore_dir / f"{container_name}-backup" / "container-config.json"
+        
+        if image_path.exists():
+            result = subprocess.run(
+                ["docker", "load", "-i", str(image_path)],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            if result.returncode != 0:
+                shutil.rmtree(restore_dir, ignore_errors=True)
+                return {"success": False, "message": f"加载镜像失败: {result.stderr}"}
+            log_service.info(f"镜像加载成功: {container_name}", 'backup')
+        
+        shutil.rmtree(restore_dir, ignore_errors=True)
+        
+        log_service.success(f"容器备份恢复成功: {container_name}", 'backup')
+        
+        return {
+            "success": True,
+            "message": "备份恢复成功",
+            "data": {
+                "container_name": container_name
+            }
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "恢复操作超时"}
+    except Exception as e:
+        log_service.error(f"恢复备份失败: {backup_id} - {str(e)}", 'backup')
+        return {"success": False, "message": f"恢复失败: {str(e)}"}

@@ -28,7 +28,13 @@ from .services import (
     pull_image,
     test_all_connectivity,
     get_proxy_config,
-    set_proxy_config
+    set_proxy_config,
+    create_container_backup,
+    get_all_backups_list,
+    get_backups_for_container,
+    remove_backup,
+    restore_backup,
+    get_backup_by_id
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -571,3 +577,309 @@ async def clear_logs():
     from .logger import log_service
     log_service.clear_logs()
     return {"success": True, "message": "日志已清空"}
+
+# ============ 容器备份相关路由 ============
+
+class CreateBackupRequest(BaseModel):
+    container_id: str
+
+@router.post("/containers/{container_id}/backup")
+async def create_backup_endpoint(container_id: str):
+    """创建容器备份"""
+    result = create_container_backup(container_id)
+    if result["success"]:
+        return result
+    else:
+        return result
+
+@router.get("/backups")
+async def list_backups():
+    """获取所有备份列表"""
+    backups = get_all_backups_list()
+    return backups
+
+@router.get("/backups/{backup_id}")
+async def get_backup_detail(backup_id: int):
+    """获取单个备份详情"""
+    backup = get_backup_by_id(backup_id)
+    if backup:
+        return backup
+    raise HTTPException(status_code=404, detail="备份不存在")
+
+@router.get("/backups/container/{container_name}")
+async def list_backups_by_container(container_name: str):
+    """获取指定容器的备份列表"""
+    backups = get_backups_for_container(container_name)
+    return backups
+
+@router.delete("/backups/{backup_id}")
+async def delete_backup_endpoint(backup_id: int):
+    """删除备份"""
+    result = remove_backup(backup_id)
+    if result["success"]:
+        return result
+    else:
+        raise HTTPException(status_code=404, detail=result["message"])
+
+@router.post("/backups/{backup_id}/restore")
+async def restore_backup_endpoint(backup_id: int):
+    """恢复备份"""
+    result = restore_backup(backup_id)
+    if result["success"]:
+        return result
+    else:
+        return result
+
+@router.get("/backups/{backup_id}/download")
+async def download_backup_endpoint(backup_id: int):
+    """下载备份文件"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    backup = get_backup_by_id(backup_id)
+    if not backup:
+        raise HTTPException(status_code=404, detail="备份不存在")
+    
+    file_path = backup.get('file_path', '')
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    
+    filename = os.path.basename(file_path)
+    return FileResponse(path=file_path, filename=filename, media_type='application/x-tar')
+
+from fastapi import UploadFile
+
+@router.post("/backups/restore-file")
+async def restore_backup_from_file_endpoint(file: UploadFile):
+    """从上传的.tar文件恢复备份"""
+    import os
+    import shutil
+    import datetime
+    import subprocess
+    from pathlib import Path
+    
+    if not file.filename.endswith('.tar'):
+        raise HTTPException(status_code=400, detail="请上传 .tar 格式的备份文件")
+    
+    temp_dir = Path("/app/backup") / f"restore-upload-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        temp_file = temp_dir / file.filename
+        with open(temp_file, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        restore_dir = temp_dir / "extracted"
+        restore_dir.mkdir(exist_ok=True)
+        
+        result = subprocess.run(
+            ["tar", "-xf", str(temp_file), "-C", str(restore_dir)],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode != 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail=f"解压备份失败: {result.stderr}")
+        
+        image_path = None
+        config_path = None
+        volume_files = []
+        bind_files = []
+        
+        for root, dirs, files in os.walk(restore_dir):
+            if 'image.tar' in files:
+                image_path = Path(root) / 'image.tar'
+            if 'container-config.json' in files:
+                config_path = Path(root) / 'container-config.json'
+            for f in files:
+                if f.startswith('volume-') and f.endswith('.tar.gz'):
+                    volume_files.append(Path(root) / f)
+                if f.startswith('bind-') and f.endswith('.tar.gz'):
+                    bind_files.append(Path(root) / f)
+            if image_path and config_path:
+                break
+        
+        if not image_path and not config_path:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail="备份文件中未找到image.tar或container-config.json")
+        
+        log_service.info(f"恢复备份: image存在={image_path is not None}, config存在={config_path is not None}, volume数量={len(volume_files)}, bind数量={len(bind_files)}", 'backup')
+        
+        if image_path and image_path.exists():
+            result = subprocess.run(
+                ["docker", "load", "-i", str(image_path)],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            if result.returncode != 0:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                raise HTTPException(status_code=500, detail=f"加载镜像失败: {result.stderr}")
+            log_service.info(f"镜像加载成功: {result.stdout[:100]}...", 'backup')
+        else:
+            log_service.warning("备份文件中未找到image.tar", 'backup')
+        
+        if config_path and config_path.exists():
+            import json
+            with open(config_path, "r") as f:
+                config_data = json.load(f)
+            
+            config = config_data[0] if isinstance(config_data, list) else config_data
+            
+            container_name = config.get('Name', '').lstrip('/')
+            log_service.info(f"容器名称: {container_name}", 'backup')
+            
+            if container_name:
+                mounts = config.get('Mounts', [])
+                volume_params = []
+                for mount in mounts:
+                    mount_type = mount.get('Type', '')
+                    destination = mount.get('Destination', '')
+                    if mount_type == 'volume':
+                        volume_name = mount.get('Name', '')
+                        if volume_name and destination:
+                            volume_params.append("-v")
+                            volume_params.append(f"{volume_name}:{destination}")
+                    elif mount_type == 'bind':
+                        source = mount.get('Source', '')
+                        if source and destination:
+                            volume_params.append("-v")
+                            volume_params.append(f"{source}:{destination}")
+                
+                env_params = []
+                env_list = config.get('Config', {}).get('Env', [])
+                for env in env_list:
+                    env_params.append("-e")
+                    env_params.append(env)
+                
+                network_mode = config.get('HostConfig', {}).get('NetworkMode', 'bridge')
+                
+                port_bindings = config.get('HostConfig', {}).get('PortBindings', {})
+                port_params = []
+                for container_port, host_bindings in port_bindings.items():
+                    if host_bindings:
+                        host_port = host_bindings[0].get('HostPort', '')
+                        if host_port:
+                            port_params.append("-p")
+                            port_params.append(f"{host_port}:{container_port}")
+                
+                image_name = config.get('Config', {}).get('Image', '')
+                log_service.info(f"镜像名称: {image_name}", 'backup')
+                
+                if image_name:
+                    existing_containers = subprocess.run(
+                        ["docker", "ps", "-a", "--filter", f"name=^{container_name}$", "--format", "{{.Names}}"],
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if existing_containers.stdout.strip():
+                        log_service.info(f"停止并删除现有容器: {container_name}", 'backup')
+                        subprocess.run(["docker", "stop", container_name], capture_output=True)
+                        subprocess.run(["docker", "rm", container_name], capture_output=True)
+                    
+                    for vol_file in volume_files:
+                        volume_name = vol_file.name.replace('volume-', '').replace('.tar.gz', '')
+                        log_service.info(f"恢复命名卷: {volume_name}", 'backup')
+                        
+                        result = subprocess.run(
+                            ["docker", "volume", "rm", volume_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        
+                        result = subprocess.run(
+                            ["docker", "volume", "create", volume_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        if result.returncode == 0:
+                            backup_dir = str(vol_file.parent)
+                            backup_filename = vol_file.name
+                            result = subprocess.run(
+                                ["docker", "run", "--rm", "-v", f"{volume_name}:/volume", "-v", f"{backup_dir}:/backup", "alpine", "sh", "-c", f"tar -xzf /backup/{backup_filename} -C /volume"],
+                                capture_output=True,
+                                text=True,
+                                timeout=300
+                            )
+                            if result.returncode != 0:
+                                log_service.warning(f"恢复命名卷失败: {volume_name} - {result.stderr}", 'backup')
+                            else:
+                                log_service.info(f"命名卷恢复成功: {volume_name}", 'backup')
+                        else:
+                            log_service.warning(f"创建命名卷失败: {volume_name}", 'backup')
+                    
+                    for bind_file in bind_files:
+                        bind_name = bind_file.name.replace('bind-', '').replace('.tar.gz', '')
+                        mount_info = None
+                        for mount in mounts:
+                            if mount.get('Type') == 'bind':
+                                source = mount.get('Source', '')
+                                if source and bind_name == os.path.basename(source):
+                                    mount_info = mount
+                                    break
+                        
+                        if mount_info:
+                            dest_path = mount_info.get('Source', '')
+                            host_dest_path = Path("/host") / dest_path.lstrip('/')
+                            host_dest_dir = host_dest_path.parent
+                            
+                            if host_dest_path.exists() and host_dest_path.is_dir():
+                                shutil.rmtree(str(host_dest_path), ignore_errors=True)
+                            
+                            if host_dest_dir and not host_dest_dir.exists():
+                                host_dest_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            result = subprocess.run(
+                                ["tar", "-xzf", str(bind_file), "-C", str(host_dest_dir)],
+                                capture_output=True,
+                                text=True,
+                                timeout=300
+                            )
+                            if result.returncode != 0:
+                                log_service.warning(f"恢复绑定挂载失败: {bind_name} - {result.stderr}", 'backup')
+                            else:
+                                log_service.info(f"绑定挂载恢复成功: {bind_name}", 'backup')
+                        else:
+                            log_service.warning(f"未找到绑定挂载配置: {bind_name}", 'backup')
+                    
+                    run_command = [
+                        "docker", "run", "-d",
+                        "--name", container_name,
+                        "--network", network_mode
+                    ] + volume_params + env_params + port_params + [image_name]
+                    
+                    log_service.info(f"执行命令: {' '.join(run_command)}", 'backup')
+                    
+                    result = subprocess.run(
+                        run_command,
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+                    
+                    if result.returncode != 0:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        raise HTTPException(status_code=500, detail=f"启动容器失败: {result.stderr}")
+                    log_service.success(f"容器启动成功: {container_name}", 'backup')
+                else:
+                    log_service.warning("配置文件中未找到镜像名称", 'backup')
+            else:
+                log_service.warning("配置文件中未找到容器名称", 'backup')
+        else:
+            log_service.warning("备份文件中未找到container-config.json", 'backup')
+        
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        return {"success": True, "message": "备份恢复成功"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        log_service.error(f"恢复备份失败: {str(e)}", 'backup')
+        raise HTTPException(status_code=500, detail=f"恢复备份失败: {str(e)}")

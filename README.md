@@ -20,33 +20,66 @@
 
 ## 快速开始
 
-### 1. 克隆项目
+### 方式一：克隆构建部署（开发/自定义）
 
 ```bash
+# 1. 克隆项目
 git clone https://github.com/Double-Stack-Workshop/doublestack-shop.git
 cd doublestack-shop
-```
 
-### 2. 启动服务
-
-```bash
+# 2. 构建并启动（本地构建镜像）
 docker compose up -d
+
+# 3. 访问应用
+# 打开浏览器访问：http://localhost:8000
 ```
 
-### 3. 访问应用
-
-打开浏览器访问：`http://localhost:8000`
-
-默认管理员账号：`admin`
-
-默认管理员密码：日志中查看（修改密码和注册账号均需要提供请牢记！）
-
-## 构建 Docker 镜像
+### 方式二：Compose 部署（推荐）
 
 ```bash
-# 构建镜像
-docker build -t doublestack-shop .
+# 1. 创建 docker-compose.run.yml 文件
+curl -O https://raw.githubusercontent.com/Double-Stack-Workshop/doublestack-shop/main/docker-compose.run.yml
+
+# 2. 启动服务（从 Docker Hub 拉取镜像）
+# 注意：请先编辑 docker-compose.run.yml，将 {version} 替换为实际版本号
+docker compose -f docker-compose.run.yml up -d
+
+# 3. 访问应用
+# 打开浏览器访问：http://localhost:25000
 ```
+
+### 方式三：Docker Run 部署
+
+```bash
+# 创建必要目录
+mkdir -p ./backend/data ./backend/repos ./backend/scripts ./backend/backup
+
+# 启动容器
+docker run -d \
+  --name doublestack-shop \
+  -p 25000:8001 \
+  -v ./backend/data:/app/data \
+  -v ./backend/repos:/app/repos \
+  -v ./backend/scripts:/app/scripts \
+  -v ./backend/backup:/app/backup \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /:/host:rw \
+  -v /etc/docker:/etc/docker:rw \
+  -v /etc/passwd:/etc/passwd:ro \
+  -v /etc/group:/etc/group:ro \
+  -e PYTHONUNBUFFERED=1 \
+  --privileged \
+  --restart unless-stopped \
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.1
+
+# 访问应用
+# 打开浏览器访问：http://localhost:25000
+```
+
+### 默认账号
+
+- 默认管理员账号：`admin`
+- 默认管理员密码：日志中查看（修改密码和注册账号均需要提供请牢记！）
 
 ## 项目结构
 
@@ -79,6 +112,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.0.1 | 2026-06-28 | 新增 Docker 容器备份功能：修复容器备份恢复功能：修复数据卷打包路径映射问题；修复恢复时数据卷写入失败问题；备份前自动停止容器确保数据一致性；恢复前清空旧数据确保纯净恢复； |
 | v2.0.0 | 2026-06-27 | 新增 Docker 加速源管理功能（支持增删改查、拖拽排序）；统一操作日志类别中文显示；优化设置页面功能； |
 
 <details>
