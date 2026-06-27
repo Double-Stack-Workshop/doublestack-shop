@@ -118,10 +118,16 @@ def clone_or_pull_repo(repo_url: str, branch: str, local_path: str) -> Dict:
             "status": "error"
         }
 
-def scan_yml_files(repo_dir: Path) -> List[YmlFile]:
+def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
     yml_files = []
     
-    for yml_path in repo_dir.rglob("*.yml"):
+    scan_dir = repo_dir
+    if local_path:
+        scan_dir = repo_dir / local_path
+        if not scan_dir.exists():
+            scan_dir = repo_dir
+    
+    for yml_path in scan_dir.rglob("*.yml"):
         try:
             with open(yml_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -133,7 +139,7 @@ def scan_yml_files(repo_dir: Path) -> List[YmlFile]:
         except Exception:
             continue
             
-    for yml_path in repo_dir.rglob("*.yaml"):
+    for yml_path in scan_dir.rglob("*.yaml"):
         try:
             with open(yml_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -180,7 +186,7 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         return result
     
     repo_dir = Path(result["path"])
-    yml_files = scan_yml_files(repo_dir)
+    yml_files = scan_yml_files(repo_dir, local_path)
     
     repo_info = RepoInfo(
         name=repo_name,
@@ -223,7 +229,7 @@ def sync_repo(repo_name: str) -> Dict:
             
             if result["success"]:
                 repo_dir = Path(result["path"])
-                repo.yml_files = scan_yml_files(repo_dir)
+                repo.yml_files = scan_yml_files(repo_dir, repo.local_path)
                 repo.status = "active"
                 repo.last_sync = "刚刚"
                 repos_db[i] = repo
@@ -1064,6 +1070,178 @@ def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
     
     return {"success": True, "message": "代理配置已保存"}
 
+def get_docker_info():
+    docker_version = ""
+    docker_compose_version = ""
+    
+    try:
+        result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            docker_version = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        docker_version = "Docker 未安装或不可用"
+    
+    try:
+        result = subprocess.run(["docker-compose", "--version"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            docker_compose_version = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        docker_compose_version = "Docker Compose 未安装或不可用"
+    
+    return {
+        "docker_version": docker_version,
+        "docker_compose_version": docker_compose_version
+    }
+
+def get_host_system_info():
+    info = {
+        "cpu_usage": "0%",
+        "memory_total": "0 MB",
+        "memory_used": "0 MB",
+        "memory_usage": "0%",
+        "disk_total": "0 GB",
+        "disk_used": "0 GB",
+        "disk_usage": "0%",
+        "os_version": "未知",
+        "network_info": []
+    }
+    
+    try:
+        result = subprocess.run(["cat", "/proc/stat"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line.startswith('cpu '):
+                    parts = line.split()
+                    total = sum(int(p) for p in parts[1:])
+                    idle = int(parts[4])
+                    usage = ((total - idle) / total) * 100
+                    info["cpu_usage"] = f"{usage:.1f}%"
+                    break
+    except Exception:
+        try:
+            result = subprocess.run(["ps", "-aux"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                info["cpu_usage"] = "获取中..."
+        except Exception:
+            info["cpu_usage"] = "无法获取"
+    
+    try:
+        result = subprocess.run(["cat", "/proc/meminfo"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            mem_total = 0
+            mem_available = 0
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith('MemTotal:'):
+                    mem_total = int(line.split()[1]) // 1024
+                elif line.startswith('MemAvailable:'):
+                    mem_available = int(line.split()[1]) // 1024
+            if mem_total > 0:
+                mem_used = mem_total - mem_available
+                info["memory_total"] = f"{mem_total} MB"
+                info["memory_used"] = f"{mem_used} MB"
+                info["memory_usage"] = f"{(mem_used / mem_total * 100):.1f}%"
+    except Exception:
+        try:
+            result = subprocess.run(["free", "-m"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if line.startswith('Mem:'):
+                        parts = line.split()
+                        info["memory_total"] = f"{parts[1]} MB"
+                        info["memory_used"] = f"{parts[2]} MB"
+                        info["memory_usage"] = f"{(int(parts[2]) / int(parts[1]) * 100):.1f}%"
+                        break
+        except Exception:
+            pass
+    
+    try:
+        result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                info["disk_total"] = parts[1]
+                info["disk_used"] = parts[2]
+                info["disk_usage"] = parts[4].replace('%', '') + '%'
+    except Exception:
+        try:
+            result = subprocess.run(["df", "-H", "/"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) >= 2:
+                    parts = lines[1].split()
+                    info["disk_total"] = parts[1]
+                    info["disk_used"] = parts[2]
+                    info["disk_usage"] = parts[4].replace('%', '') + '%'
+        except Exception:
+            pass
+    
+    try:
+        result = subprocess.run(["cat", "/etc/os-release"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            os_info = {}
+            for line in result.stdout.strip().split('\n'):
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    os_info[key] = value.strip('"')
+            info["os_version"] = os_info.get('PRETTY_NAME', os_info.get('NAME', '未知'))
+    except Exception:
+        try:
+            result = subprocess.run(["uname", "-a"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                info["os_version"] = result.stdout.strip()
+        except Exception:
+            pass
+    
+    try:
+        result = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            interfaces = []
+            current_iface = None
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith(' '):
+                    if current_iface and 'inet ' in line:
+                        ip = line.split('inet ')[1].split('/')[0]
+                        if not ip.startswith('127.'):
+                            current_iface["ip"] = ip
+                elif ':' in line:
+                    if current_iface and current_iface.get("ip"):
+                        interfaces.append(current_iface)
+                    name = line.split(':')[1].strip()
+                    current_iface = {"name": name, "ip": ""}
+            if current_iface and current_iface.get("ip"):
+                interfaces.append(current_iface)
+            info["network_info"] = interfaces
+    except Exception:
+        try:
+            result = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                interfaces = []
+                current_iface = None
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip() and not line.startswith(' '):
+                        if current_iface and current_iface.get("ip"):
+                            interfaces.append(current_iface)
+                        name = line.split(':')[0].strip()
+                        current_iface = {"name": name, "ip": ""}
+                    elif current_iface and 'inet ' in line:
+                        parts = line.split()
+                        for i, part in enumerate(parts):
+                            if part == 'inet' and i + 1 < len(parts):
+                                ip = parts[i + 1]
+                                if not ip.startswith('127.'):
+                                    current_iface["ip"] = ip
+                                break
+                if current_iface and current_iface.get("ip"):
+                    interfaces.append(current_iface)
+                info["network_info"] = interfaces
+        except Exception:
+            pass
+    
+    return info
+
 def get_latest_dockerhub_version(repo_name: str) -> Optional[str]:
     try:
         url = f"https://hub.docker.com/v2/repositories/{repo_name}/tags"
@@ -1281,7 +1459,7 @@ def create_container_backup(container_id: str) -> Dict:
         container_name = container_info.get('name', '')
         backup_name = f"{container_name}-backup"
         
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y%m%d-%H%M%S")
         backup_dir = BACKUPS_DIR / f"{backup_name}-{timestamp}"
         backup_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1364,7 +1542,7 @@ def create_container_backup(container_id: str) -> Dict:
                 "container_id": container_id,
                 "file_path": str(archive_path),
                 "size": backup_size,
-                "created_at": datetime.datetime.now().isoformat(),
+                "created_at": datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(),
                 "steps": steps
             }
         }
@@ -1428,7 +1606,7 @@ def restore_backup(backup_id: int) -> Dict:
         
         container_name = backup.get('container_name', '')
         
-        restore_dir = BACKUPS_DIR / f"restore-{container_name}-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        restore_dir = BACKUPS_DIR / f"restore-{container_name}-{datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime('%Y%m%d-%H%M%S')}"
         restore_dir.mkdir(parents=True, exist_ok=True)
         
         result = subprocess.run(

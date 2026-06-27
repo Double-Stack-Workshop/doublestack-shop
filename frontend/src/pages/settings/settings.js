@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadUserInfo();
     loadVersion();
     loadProxyConfig();
+    loadGlobalDomain();
     loadDockerMirrors();
     
     addUserBtn.addEventListener('click', function() {
@@ -318,6 +319,20 @@ async function loadProxyConfig() {
     }
 }
 
+async function loadGlobalDomain() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/global-domain`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                document.getElementById('globalDomain').value = result.data.global_domain || '';
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load global domain:', error);
+    }
+}
+
 async function saveProxyConfig() {
     const httpProxy = document.getElementById('httpProxy').value.trim();
     const httpsProxy = document.getElementById('httpsProxy').value.trim();
@@ -339,6 +354,37 @@ async function saveProxyConfig() {
         
         if (result.success) {
             showMessage('代理配置保存成功', 'success');
+        } else {
+            showMessage(result.message || '保存失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
+    }
+}
+
+async function saveGlobalDomain() {
+    const globalDomain = document.getElementById('globalDomain').value.trim();
+    
+    const btn = document.getElementById('saveDomainBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/global-domain`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ global_domain: globalDomain })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showMessage('全局域名/IP配置保存成功', 'success');
         } else {
             showMessage(result.message || '保存失败', 'error');
         }

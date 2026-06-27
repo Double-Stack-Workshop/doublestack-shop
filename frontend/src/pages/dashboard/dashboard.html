@@ -115,13 +115,43 @@
                     </div>
                 </section>
                 
+                <section class="host-info-section">
+                    <div class="section-header">
+                        <h2>宿主机系统信息</h2>
+                    </div>
+                    <div class="host-info-grid" id="hostInfoGrid">
+                        <div class="host-info-card loading">
+                            <div class="host-info-icon">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                            </div>
+                            <div class="host-info-content">
+                                <h4>加载中...</h4>
+                                <p>正在获取系统信息</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="docker-info-section">
+                    <div class="section-header">
+                        <h2>Docker 环境信息</h2>
+                    </div>
+                    <div class="docker-info-grid" id="dockerInfoGrid">
+                        <div class="docker-info-card loading">
+                            <div class="docker-info-icon">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                            </div>
+                            <div class="docker-info-content">
+                                <h4>加载中...</h4>
+                                <p>正在获取 Docker 版本信息</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
                 <section class="connectivity-section">
                     <div class="section-header">
                         <h2>连接性测试</h2>
-                        <button class="refresh-btn" onclick="loadConnectivity()">
-                            <i class="fas fa-refresh"></i>
-                            <span>刷新</span>
-                        </button>
                     </div>
                     <div class="connectivity-grid" id="connectivityGrid">
                         <div class="connectivity-card loading">

@@ -442,6 +442,50 @@ body {
     to { transform: rotate(360deg); }
 }
 
+.domain-section {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+    padding: 24px;
+    margin-bottom: 30px;
+}
+
+.domain-card {
+    max-width: 600px;
+}
+
+.domain-section .form-group {
+    margin-bottom: 20px;
+}
+
+.domain-section .form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.domain-section .form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #1e293b;
+    transition: border-color 0.2s ease;
+    font-family: 'Courier New', monospace;
+}
+
+.domain-section .form-group input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.domain-section .form-group input::placeholder {
+    color: #94a3b8;
+}
+
 .proxy-section {
     background: white;
     border-radius: 16px;

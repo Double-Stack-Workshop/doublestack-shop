@@ -345,6 +345,25 @@ body {
     margin-bottom: 4px;
 }
 
+.container-details h3 .container-name-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #3b82f6;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.container-details h3 .container-name-link:hover {
+    text-decoration: underline;
+    color: #2563eb;
+}
+
+.container-details h3 .container-name-link i {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
 .container-details p {
     font-size: 13px;
     color: #6b7280;

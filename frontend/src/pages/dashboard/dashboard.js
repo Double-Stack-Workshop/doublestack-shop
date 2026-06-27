@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadSuccessRate();
     loadDeploymentHistory();
     loadConnectivity();
+    loadDockerInfo();
+    loadHostInfo();
     
     setInterval(loadContainerCount, 10000);
 });
@@ -296,4 +298,176 @@ function renderConnectivity(data) {
             </div>
         `;
     }).join('');
+}
+
+async function loadHostInfo() {
+    const container = document.getElementById('hostInfoGrid');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/system/host-info`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+                container.innerHTML = renderHostInfo(data.data);
+            } else {
+                container.innerHTML = `
+                    <div class="host-info-card error">
+                        <div class="host-info-icon">
+                            <i class="fas fa-exclamation-circle"></i>
+                        </div>
+                        <div class="host-info-content">
+                            <h4>加载失败</h4>
+                            <p>无法获取宿主机信息</p>
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            container.innerHTML = `
+                <div class="host-info-card error">
+                    <div class="host-info-icon">
+                        <i class="fas fa-exclamation-circle"></i>
+                    </div>
+                    <div class="host-info-content">
+                        <h4>请求失败</h4>
+                        <p>HTTP ${response.status}</p>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        container.innerHTML = `
+            <div class="host-info-card error">
+                <div class="host-info-icon">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="host-info-content">
+                    <h4>加载失败</h4>
+                    <p>网络错误或服务不可用</p>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function renderHostInfo(info) {
+    const networkHtml = info.network_info && info.network_info.length > 0
+        ? info.network_info.map(iface => `
+            <div class="host-info-card">
+                <div class="host-info-icon bg-network">
+                    <i class="fas fa-network-wired"></i>
+                </div>
+                <div class="host-info-content">
+                    <h4>${iface.name}</h4>
+                    <p>${iface.ip}</p>
+                </div>
+            </div>
+        `).join('')
+        : '';
+    
+    return `
+        <div class="host-info-card">
+            <div class="host-info-icon bg-cpu">
+                <i class="fas fa-cpu"></i>
+            </div>
+            <div class="host-info-content">
+                <h4>CPU 使用率</h4>
+                <p>${info.cpu_usage}</p>
+            </div>
+        </div>
+        <div class="host-info-card">
+            <div class="host-info-icon bg-memory">
+                <i class="fas fa-memory"></i>
+            </div>
+            <div class="host-info-content">
+                <h4>内存使用</h4>
+                <p>${info.memory_used} / ${info.memory_total}</p>
+                <span class="host-info-percent">${info.memory_usage}</span>
+            </div>
+        </div>
+        <div class="host-info-card">
+            <div class="host-info-icon bg-disk">
+                <i class="fas fa-hard-drive"></i>
+            </div>
+            <div class="host-info-content">
+                <h4>磁盘空间</h4>
+                <p>${info.disk_used} / ${info.disk_total}</p>
+                <span class="host-info-percent">${info.disk_usage}</span>
+            </div>
+        </div>
+        <div class="host-info-card">
+            <div class="host-info-icon bg-os">
+                <i class="fas fa-server"></i>
+            </div>
+            <div class="host-info-content">
+                <h4>系统版本</h4>
+                <p>${info.os_version}</p>
+            </div>
+        </div>
+        ${networkHtml}
+    `;
+}
+
+async function loadDockerInfo() {
+    const container = document.getElementById('dockerInfoGrid');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/system/docker-info`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+                renderDockerInfo(data.data);
+            }
+        } else {
+            container.innerHTML = `
+                <div class="docker-info-card error">
+                    <div class="docker-info-icon">
+                        <i class="fas fa-exclamation-circle"></i>
+                    </div>
+                    <div class="docker-info-content">
+                        <h4>加载失败</h4>
+                        <p>无法获取 Docker 版本信息</p>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Failed to load Docker info:', error);
+        container.innerHTML = `
+            <div class="docker-info-card error">
+                <div class="docker-info-icon">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="docker-info-content">
+                    <h4>连接失败</h4>
+                    <p>无法连接到服务器</p>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function renderDockerInfo(data) {
+    const container = document.getElementById('dockerInfoGrid');
+    
+    container.innerHTML = `
+        <div class="docker-info-card">
+            <div class="docker-info-icon bg-blue">
+                <i class="fab fa-docker"></i>
+            </div>
+            <div class="docker-info-content">
+                <h4>Docker</h4>
+                <p>${data.docker_version || '未知'}</p>
+            </div>
+        </div>
+        <div class="docker-info-card">
+            <div class="docker-info-icon bg-green">
+                <i class="fab fa-docker"></i>
+            </div>
+            <div class="docker-info-content">
+                <h4>Docker Compose</h4>
+                <p>${data.docker_compose_version || '未知'}</p>
+            </div>
+        </div>
+    `;
 }

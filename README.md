@@ -1,15 +1,19 @@
 # Double Stack Store (双栈商店)
 
-一个基于 Docker 的容器管理平台，支持一键部署 Compose 文件、容器管理、仓库管理等实用功能。
+一个基于 Docker 的容器管理平台，支持一键部署 Compose 文件、容器管理、备份恢复、仓库管理等实用功能。
 
 ## 功能特性
 
-- **📦 容器管理** - 实时查看运行中/已停止/总容器数量，支持查看日志、删除容器
+- **📦 容器管理** - 实时查看容器状态，支持启动/停止/重启/删除容器，查看容器日志；配置全局域名/IP后，容器名称可点击跳转至访问地址
 - **🚀 一键部署** - 通过 Docker Compose 快速部署应用，支持实时日志输出
-- **📚 仓库管理** - 添加和管理多个 Git 仓库，一键拉取最新代码
-- **📊 仪表盘** - 实时统计已部署应用数量、部署成功率等关键数据
-- **🔐 用户管理** - 支持多用户注册登录，管理员密码保护
-- **🔄 版本检测** - 自动检测 Docker Hub 最新版本，支持一键更新
+- **📚 仓库管理** - 添加和管理多个 Git 仓库，支持飞牛、绿联、极空间等多平台容器仓库，按 local_path 筛选文件
+- **💾 备份恢复** - 容器完整备份（镜像+配置+数据卷），支持一键恢复和文件上传恢复；备份文件时间戳使用 UTC+8 时区
+- **🖼️ 镜像管理** - 查看本地镜像，支持删除镜像，检测 Docker Hub 最新版本，支持一键拉取更新
+- **📊 仪表盘** - 实时统计容器数量、备份状态等关键数据；展示宿主机系统信息（CPU、内存、磁盘、系统版本、网络）；展示 Docker/Docker Compose 版本信息；测试 GitHub 和 Docker Hub 连接性
+- **🔐 用户管理** - 支持多用户注册登录，找回密码功能
+- **📝 操作日志** - 完整记录系统操作日志，支持按类型筛选查看
+- **⚙️ 系统设置** - 代理配置、全局域名/IP配置、Docker加速源等系统参数管理
+- **💡 容器推荐** - 推荐热门容器应用，一键部署，配套教程链接
 - **💻 终端访问** - 内置 Web 终端，支持连接宿主主机 Linux 终端
 
 ## 系统要求
@@ -45,7 +49,7 @@ curl -O https://raw.githubusercontent.com/Double-Stack-Workshop/doublestack-shop
 docker compose -f docker-compose.run.yml up -d
 
 # 3. 访问应用
-# 打开浏览器访问：http://localhost:25000
+# 打开浏览器访问：http://localhost:8000
 ```
 
 ### 方式三：Docker Run 部署
@@ -57,7 +61,7 @@ mkdir -p ./backend/data ./backend/repos ./backend/scripts ./backend/backup
 # 启动容器
 docker run -d \
   --name doublestack-shop \
-  -p 25000:8001 \
+  -p 8000:8001 \
   -v ./backend/data:/app/data \
   -v ./backend/repos:/app/repos \
   -v ./backend/scripts:/app/scripts \
@@ -70,10 +74,10 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.1
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.2
 
 # 访问应用
-# 打开浏览器访问：http://localhost:25000
+# 打开浏览器访问：http://localhost:8000
 ```
 
 ### 默认账号
@@ -86,20 +90,39 @@ docker run -d \
 ```
 doublestack-shop/
 ├── Dockerfile              # Docker 镜像构建文件
-├── docker-compose.yml     # Docker Compose 配置
+├── docker-compose.yml      # Docker Compose 配置
+├── docker-compose.run.yml  # Docker Run 部署配置
 ├── backend/
 │   ├── app/
-│   │   ├── main.py       # FastAPI 应用入口
-│   │   ├── routes.py     # API 路由
-│   │   ├── services.py   # 业务逻辑
-│   │   ├── database.py   # 数据库操作
-│   │   └── version.py    # 版本信息
-│   └── requirements.txt  # Python 依赖
+│   │   ├── main.py        # FastAPI 应用入口
+│   │   ├── routes.py      # API 路由
+│   │   ├── services.py    # 业务逻辑
+│   │   ├── database.py    # 数据库操作
+│   │   ├── version.py     # 版本信息
+│   │   ├── logger.py      # 日志服务
+│   │   ├── schemas.py     # 数据模型
+│   │   └── terminal.py    # 终端服务
+│   ├── requirements.txt   # Python 依赖
+│   └── package.json       # 前端依赖配置
 └── frontend/
     └── src/
-        ├── images/       # 图片资源
-        ├── pages/        # 页面组件
-        └── components/   # 公共组件
+        ├── images/        # 图片资源
+        ├── components/    # 公共组件
+        │   └── sidebar/   # 侧边栏组件
+        └── pages/         # 页面组件
+            ├── login/     # 登录页面
+            ├── register/  # 注册页面
+            ├── forgot/    # 找回密码
+            ├── dashboard/ # 仪表盘
+            ├── container/ # 容器管理
+            ├── image/     # 镜像管理
+            ├── deploy/    # 应用部署
+            ├── backup/    # 备份恢复
+            ├── logs/      # 操作日志
+            ├── terminal/  # 终端管理
+            ├── settings/  # 系统设置
+            ├── recommend/ # 推荐应用
+            └── repository/# 仓库管理
 ```
 
 ## 技术栈
@@ -112,6 +135,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.0.2 | 2026-06-28 | 修复备份文件时间戳时区问题（统一使用UTC+8）；新增默认仓库配置（飞牛容器仓库、绿联新系统容器仓库、绿联旧系统容器仓库、极空间容器仓库）；修复多仓库文件列表重复问题；新增全局域名/IP配置功能（设置界面配置，容器名称可点击跳转）；新增仪表盘宿主机系统信息展示（CPU使用率、内存使用、磁盘空间、系统版本、网络信息）；新增仪表盘 Docker 环境信息展示（Docker/Docker Compose 版本）；修复多个界面样式和API错误问题； |
 | v2.0.1 | 2026-06-28 | 新增 Docker 容器备份功能：修复容器备份恢复功能：修复数据卷打包路径映射问题；修复恢复时数据卷写入失败问题；备份前自动停止容器确保数据一致性；恢复前清空旧数据确保纯净恢复； |
 | v2.0.0 | 2026-06-27 | 新增 Docker 加速源管理功能（支持增删改查、拖拽排序）；统一操作日志类别中文显示；优化设置页面功能； |
 

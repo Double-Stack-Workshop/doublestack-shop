@@ -5,7 +5,7 @@ services:
     image: lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.1
     container_name: doublestack-shop
     ports:
-      - "25000:8001"
+      - "8000:8001"
     volumes:
       - ./backend/data:/app/data
       - ./backend/repos:/app/repos

@@ -1,14 +1,49 @@
 const API_BASE_URL = '/api';
 let allContainers = [];
+let globalDomain = '';
 
 document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
     checkLogin();
     loadUserInfo();
+    await loadGlobalDomain();
     await refreshContainers();
     
     setInterval(refreshContainers, 15000);
 });
+
+async function loadGlobalDomain() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/global-domain`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                globalDomain = result.data.global_domain || '';
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load global domain:', error);
+    }
+}
+
+function getAccessUrl(container) {
+    if (!globalDomain || !container.ports || container.ports.length === 0) {
+        return null;
+    }
+    
+    const protocol = globalDomain.startsWith('http://') || globalDomain.startsWith('https://') 
+        ? '' 
+        : 'http://';
+    
+    for (const port of container.ports) {
+        const match = port.match(/0\.0\.0\.0:(\d+)->\d+\/tcp/);
+        if (match && match[1]) {
+            return `${protocol}${globalDomain}:${match[1]}`;
+        }
+    }
+    
+    return null;
+}
 
 async function loadSidebar() {
     const response = await fetch('/src/components/sidebar/sidebar.html');
@@ -108,14 +143,35 @@ function renderContainers(containers) {
         return;
     }
     
-    containerList.innerHTML = containers.map(container => `
+    const html = containers.map(container => {
+        const accessUrl = getAccessUrl(container);
+        const nameHtml = accessUrl 
+            ? `<a href="${accessUrl}" target="_blank" class="container-name-link">${container.name} <i class="fas fa-external-link-alt"></i></a>`
+            : `<span>${container.name}</span>`;
+        
+        const runningActions = `
+            <button class="action-btn stop" title="停止容器" onclick="stopContainer('${container.id}')">
+                <i class="fas fa-stop"></i>
+            </button>
+            <button class="action-btn restart" title="重启容器" onclick="restartContainer('${container.id}')">
+                <i class="fas fa-redo"></i>
+            </button>
+        `;
+        
+        const stoppedActions = `
+            <button class="action-btn start" title="启动容器" onclick="startContainer('${container.id}')">
+                <i class="fas fa-play"></i>
+            </button>
+        `;
+        
+        return `
         <div class="container-card ${container.state}">
             <div class="container-info">
                 <div class="container-icon">
                     <i class="fab fa-docker"></i>
                 </div>
                 <div class="container-details">
-                    <h3>${container.name}</h3>
+                    <h3>${nameHtml}</h3>
                     <p>
                         <span><i class="fas fa-hashtag"></i> ${container.id.slice(0, 12)}</span>
                         <span><i class="fas fa-image"></i> ${container.image.split('/').pop().split(':')[0]}</span>
@@ -135,24 +191,16 @@ function renderContainers(containers) {
                 <button class="action-btn logs" title="查看日志" onclick="showContainerLogs('${container.id}', '${container.name}')">
                     <i class="fas fa-file-text"></i>
                 </button>
-                ${container.state === 'running' ? `
-                    <button class="action-btn stop" title="停止容器" onclick="stopContainer('${container.id}')">
-                        <i class="fas fa-stop"></i>
-                    </button>
-                    <button class="action-btn restart" title="重启容器" onclick="restartContainer('${container.id}')">
-                        <i class="fas fa-redo"></i>
-                    </button>
-                ` : `
-                    <button class="action-btn start" title="启动容器" onclick="startContainer('${container.id}')">
-                        <i class="fas fa-play"></i>
-                    </button>
-                `}
+                ${container.state === 'running' ? runningActions : stoppedActions}
                 <button class="action-btn remove" title="删除容器" onclick="removeContainer('${container.id}', ${container.state === 'running'})">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
+    
+    containerList.innerHTML = html;
 }
 
 function showEmptyState() {

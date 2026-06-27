@@ -34,7 +34,9 @@ from .services import (
     get_backups_for_container,
     remove_backup,
     restore_backup,
-    get_backup_by_id
+    get_backup_by_id,
+    get_docker_info,
+    get_host_system_info
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -46,7 +48,9 @@ from .database import (
     update_user,
     delete_user,
     verify_admin_password,
-    reset_admin_password
+    reset_admin_password,
+    get_setting,
+    set_setting
 )
 from .logger import log_service
 
@@ -310,6 +314,18 @@ async def get_system_version():
     log_service.info("获取系统版本信息", 'system')
     return {"current_version": VERSION, "build_date": BUILD_DATE}
 
+@router.get("/system/docker-info")
+async def get_docker_info_route():
+    log_service.info("获取 Docker 版本信息", 'system')
+    docker_info = get_docker_info()
+    return {"success": True, "data": docker_info}
+
+@router.get("/system/host-info")
+async def get_host_info_route():
+    log_service.info("获取宿主机系统信息", 'system')
+    host_info = get_host_system_info()
+    return {"success": True, "data": host_info}
+
 @router.get("/system/check-update")
 async def check_for_updates():
     log_service.info("检查系统更新", 'system')
@@ -507,6 +523,23 @@ async def update_proxy(request: ProxyRequest):
     """更新代理配置"""
     result = set_proxy_config(request.http_proxy, request.https_proxy)
     return result
+
+# 全局域名/IP 设置相关路由
+@router.get("/global-domain")
+async def get_global_domain():
+    """获取全局域名/IP配置"""
+    domain = get_setting("global_domain", "")
+    return {"success": True, "data": {"global_domain": domain}}
+
+class GlobalDomainRequest(BaseModel):
+    global_domain: str = ""
+
+@router.put("/global-domain")
+async def update_global_domain(request: GlobalDomainRequest):
+    """更新全局域名/IP配置"""
+    set_setting("global_domain", request.global_domain)
+    log_service.info(f"全局域名/IP已更新: {request.global_domain}", 'system')
+    return {"success": True, "message": "配置已保存"}
 
 # Docker 加速源相关路由
 import json

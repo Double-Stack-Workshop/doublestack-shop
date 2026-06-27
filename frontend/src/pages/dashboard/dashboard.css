@@ -343,6 +343,206 @@ body {
     font-weight: 400;
 }
 
+.host-info-section {
+    padding: 0 30px;
+    margin-top: 30px;
+}
+
+.host-info-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.host-info-section h2 {
+    font-size: 18px;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.host-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.host-info-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.host-info-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.host-info-card.loading {
+    opacity: 0.6;
+}
+
+.host-info-card.error {
+    background: #fef2f2;
+}
+
+.host-info-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    flex-shrink: 0;
+}
+
+.host-info-icon.bg-cpu {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.host-info-icon.bg-memory {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+}
+
+.host-info-icon.bg-disk {
+    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
+.host-info-icon.bg-os {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.host-info-icon.bg-network {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.host-info-icon.bg-error {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.host-info-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.host-info-content h4 {
+    font-size: 14px;
+    color: #64748b;
+    font-weight: 500;
+    margin: 0 0 6px 0;
+}
+
+.host-info-content p {
+    font-size: 16px;
+    color: #1e293b;
+    font-weight: 600;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.host-info-percent {
+    display: inline-block;
+    font-size: 12px;
+    color: #667eea;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.docker-info-section {
+    padding: 0 30px;
+    margin-top: 30px;
+}
+
+.docker-info-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.docker-info-section h2 {
+    font-size: 18px;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.docker-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.docker-info-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.docker-info-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.docker-info-card.loading {
+    opacity: 0.6;
+}
+
+.docker-info-card.error {
+    background: #fef2f2;
+}
+
+.docker-info-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    flex-shrink: 0;
+}
+
+.docker-info-icon.bg-blue {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.docker-info-icon-bg-green {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.docker-info-icon.bg-green {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.docker-info-content h4 {
+    font-size: 15px;
+    color: #1e293b;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.docker-info-content p {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+    word-break: break-all;
+}
+
 .connectivity-section {
     padding: 0 30px;
     margin-top: 30px;
