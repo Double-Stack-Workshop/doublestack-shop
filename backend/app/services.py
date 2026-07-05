@@ -1,6 +1,7 @@
 import subprocess
 import os
 import shutil
+import time
 import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -19,7 +20,9 @@ from .database import (
     get_proxy_config as db_get_proxy_config,
     set_proxy_config as db_set_proxy_config,
     get_images_cache,
-    update_images_cache
+    update_images_cache,
+    get_setting,
+    set_setting
 )
 
 # 初始化：从数据库加载仓库信息
@@ -66,57 +69,206 @@ def _ensure_repos_loaded():
 # 初始化代理配置
 proxy_config: Dict = db_get_proxy_config()
 
+def get_requests_proxies() -> Dict[str, str]:
+    proxies = {}
+    http_proxy = proxy_config["http_proxy"]
+    https_proxy = proxy_config["https_proxy"]
+    if http_proxy:
+        proxies["http"] = http_proxy
+    if https_proxy:
+        proxies["https"] = https_proxy
+    elif http_proxy:
+        proxies["https"] = http_proxy
+    return proxies
+
 def get_repo_name_from_url(url: str) -> str:
     return url.rstrip('/').split('/')[-1].replace('.git', '')
 
-def clone_or_pull_repo(repo_url: str, branch: str, local_path: str) -> Dict:
+def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, max_retries: int = 3) -> Dict:
     repo_name = get_repo_name_from_url(repo_url)
     repo_dir = REPOS_DIR / repo_name
-    
+
+    env = os.environ.copy()
+    http_proxy = proxy_config["http_proxy"]
+    https_proxy = proxy_config["https_proxy"] or http_proxy
+    if http_proxy:
+        env["HTTP_PROXY"] = http_proxy
+        env["http_proxy"] = http_proxy
+    if https_proxy:
+        env["HTTPS_PROXY"] = https_proxy
+        env["https_proxy"] = https_proxy
+
+    def is_repo_incomplete(directory: Path) -> bool:
+        git_dir = directory / ".git"
+        if not git_dir.exists():
+            return False
+        head_file = git_dir / "HEAD"
+        if not head_file.exists():
+            return True
+        try:
+            result = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=directory,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env
+            )
+            return result.returncode != 0
+        except Exception:
+            return True
+
+    def do_clone(directory: Path) -> Dict:
+        for attempt in range(max_retries):
+            try:
+                if directory.exists():
+                    shutil.rmtree(directory, ignore_errors=True)
+                result = subprocess.run(
+                    ["git", "clone", "-b", branch, "--depth", "1", repo_url, str(directory)],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=env
+                )
+                if result.returncode == 0:
+                    return {
+                        "success": True,
+                        "message": "仓库克隆成功",
+                        "status": "active",
+                        "path": str(directory)
+                    }
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": f"克隆失败: {result.stderr}",
+                    "status": "error"
+                }
+            except subprocess.TimeoutExpired:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": "克隆超时",
+                    "status": "error"
+                }
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": f"克隆失败: {str(e)}",
+                    "status": "error"
+                }
+        return {"success": False, "message": "克隆失败", "status": "error"}
+
+    def do_pull(directory: Path) -> Dict:
+        for attempt in range(max_retries):
+            try:
+                result = subprocess.run(
+                    ["git", "pull", "origin", branch],
+                    cwd=directory,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    env=env
+                )
+                if result.returncode == 0:
+                    return {
+                        "success": True,
+                        "message": "仓库更新成功",
+                        "status": "active",
+                        "path": str(directory)
+                    }
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": f"更新失败: {result.stderr}",
+                    "status": "error"
+                }
+            except subprocess.TimeoutExpired:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": "更新超时",
+                    "status": "error"
+                }
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "message": f"更新失败: {str(e)}",
+                    "status": "error"
+                }
+        return {"success": False, "message": "更新失败", "status": "error"}
+
     try:
         if repo_dir.exists():
-            result = subprocess.run(
-                ["git", "pull", "origin", branch],
-                cwd=repo_dir,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            sync_type = "更新"
+            if is_repo_incomplete(repo_dir):
+                print(f"仓库 {repo_name} 不完整，重新克隆...")
+                return do_clone(repo_dir)
+            result = do_pull(repo_dir)
+            if not result["success"]:
+                print(f"仓库 {repo_name} 更新失败，尝试重新克隆...")
+                return do_clone(repo_dir)
+            return result
         else:
-            result = subprocess.run(
-                ["git", "clone", "-b", branch, "--depth", "1", repo_url, str(repo_dir)],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            sync_type = "克隆"
-            
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "message": f"{sync_type}失败: {result.stderr}",
-                "status": "error"
-            }
-        
-        return {
-            "success": True,
-            "message": f"仓库{sync_type}成功",
-            "status": "active",
-            "path": str(repo_dir)
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "message": "操作超时",
-            "status": "error"
-        }
+            return do_clone(repo_dir)
     except Exception as e:
         return {
             "success": False,
             "message": f"操作失败: {str(e)}",
             "status": "error"
         }
+
+DEFAULT_REPOS = [
+    {
+        "name": "飞牛容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "fnOS"
+    },
+    {
+        "name": "绿联新系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "UgreenNew"
+    },
+    {
+        "name": "绿联旧系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "Ugreen（Abandoned）"
+    },
+    {
+        "name": "极空间容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "ZSpace"
+    }
+]
+
+def init_default_repos():
+    repos = get_all_repos()
+    repo_names = [repo["name"] for repo in repos]
+    for repo_config in DEFAULT_REPOS:
+        if repo_config["name"] not in repo_names:
+            add_repo(
+                repo_url=repo_config["repo_url"],
+                branch=repo_config["branch"],
+                local_path=repo_config["local_path"],
+                name=repo_config["name"]
+            )
+            time.sleep(1)
 
 def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
     yml_files = []
@@ -156,6 +308,7 @@ def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
 
 def get_all_repos() -> List[Dict]:
     _ensure_repos_loaded()
+    current_repo = get_setting("current_repo", "")
     return [
         {
             "name": repo.name,
@@ -164,7 +317,8 @@ def get_all_repos() -> List[Dict]:
             "local_path": repo.local_path,
             "yml_count": len(repo.yml_files),
             "last_sync": repo.last_sync,
-            "status": repo.status
+            "status": repo.status,
+            "is_current": repo.name == current_repo
         }
         for repo in repos_db
     ]
@@ -366,12 +520,14 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                     
                     # 设置环境变量（包含代理配置）
                     env = os.environ.copy()
-                    if proxy_config["http_proxy"]:
-                        env["HTTP_PROXY"] = proxy_config["http_proxy"]
-                        env["http_proxy"] = proxy_config["http_proxy"]
-                    if proxy_config["https_proxy"]:
-                        env["HTTPS_PROXY"] = proxy_config["https_proxy"]
-                        env["https_proxy"] = proxy_config["https_proxy"]
+                    http_proxy = proxy_config["http_proxy"]
+                    https_proxy = proxy_config["https_proxy"] or http_proxy
+                    if http_proxy:
+                        env["HTTP_PROXY"] = http_proxy
+                        env["http_proxy"] = http_proxy
+                    if https_proxy:
+                        env["HTTPS_PROXY"] = https_proxy
+                        env["https_proxy"] = https_proxy
                     
                     try:
                         deployment_logs = []
@@ -879,8 +1035,9 @@ def delete_image(image_id: str) -> Dict:
 
 def search_dockerhub_images(query: str) -> list:
     try:
+        proxies = get_requests_proxies()
         url = f"https://hub.docker.com/v2/search/repositories?query={query}&page_size=20"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=10, proxies=proxies)
         if response.status_code == 200:
             data = response.json()
             results = []
@@ -897,7 +1054,7 @@ def search_dockerhub_images(query: str) -> list:
                 tags = ['latest']
                 try:
                     tags_url = f"https://hub.docker.com/v2/repositories/{name}/tags?page_size=10"
-                    tags_response = requests.get(tags_url, timeout=5)
+                    tags_response = requests.get(tags_url, timeout=5, proxies=proxies)
                     if tags_response.status_code == 200:
                         tags_data = tags_response.json()
                         tag_results = tags_data.get('results', [])
@@ -921,11 +1078,22 @@ def search_dockerhub_images(query: str) -> list:
 
 def pull_image(image_name: str) -> Dict:
     try:
+        env = os.environ.copy()
+        http_proxy = proxy_config["http_proxy"]
+        https_proxy = proxy_config["https_proxy"] or http_proxy
+        if http_proxy:
+            env["HTTP_PROXY"] = http_proxy
+            env["http_proxy"] = http_proxy
+        if https_proxy:
+            env["HTTPS_PROXY"] = https_proxy
+            env["https_proxy"] = https_proxy
+        
         result = subprocess.run(
             ["docker", "pull", image_name],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
+            env=env
         )
         
         if result.returncode == 0:
@@ -953,8 +1121,9 @@ import time
 def test_connectivity(url: str, timeout: int = 10) -> Dict:
     """测试网络连通性"""
     try:
+        proxies = get_requests_proxies()
         start_time = time.time()
-        response = requests.get(url, timeout=timeout, verify=True)
+        response = requests.get(url, timeout=timeout, verify=True, proxies=proxies)
         latency = int((time.time() - start_time) * 1000)
         
         if response.status_code == 200:
@@ -1033,6 +1202,15 @@ def test_all_connectivity() -> Dict:
 def get_proxy_config() -> Dict:
     """获取当前代理配置"""
     return proxy_config.copy()
+
+def get_current_repo() -> str:
+    """获取当前系统仓库"""
+    return get_setting("current_repo", "")
+
+def set_current_repo(repo_name: str) -> bool:
+    """设置当前系统仓库"""
+    set_setting("current_repo", repo_name)
+    return True
 
 def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
     """设置代理配置"""
@@ -1244,8 +1422,9 @@ def get_host_system_info():
 
 def get_latest_dockerhub_version(repo_name: str) -> Optional[str]:
     try:
+        proxies = get_requests_proxies()
         url = f"https://hub.docker.com/v2/repositories/{repo_name}/tags"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=10, proxies=proxies)
         if response.status_code == 200:
             data = response.json()
             tags = []

@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from .schemas import AddRepoRequest
@@ -36,7 +37,10 @@ from .services import (
     restore_backup,
     get_backup_by_id,
     get_docker_info,
-    get_host_system_info
+    get_host_system_info,
+    get_current_repo,
+    set_current_repo,
+    init_default_repos
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -169,9 +173,16 @@ async def list_repos():
     log_service.info("获取仓库列表", 'query')
     return get_all_repos()
 
+@router.post("/repos/init-default")
+async def init_default_repos_route():
+    await asyncio.to_thread(init_default_repos)
+    log_service.info("初始化默认仓库", 'system')
+    repos = get_all_repos()
+    return {"success": True, "message": f"已初始化 {len(repos)} 个仓库", "data": repos}
+
 @router.post("/repos")
 async def create_repo(request: AddRepoRequest):
-    result = add_repo(request.repo_url, request.branch, request.local_path, request.name)
+    result = await asyncio.to_thread(add_repo, request.repo_url, request.branch, request.local_path, request.name)
     if result["success"]:
         return result
     else:
@@ -186,7 +197,7 @@ async def read_repo(repo_name: str):
 
 @router.post("/repos/{repo_name}/sync")
 async def sync_repo_endpoint(repo_name: str):
-    result = sync_repo(repo_name)
+    result = await asyncio.to_thread(sync_repo, repo_name)
     if result["success"]:
         return result
     elif result["status"] == "error":
@@ -523,6 +534,23 @@ async def update_proxy(request: ProxyRequest):
     """更新代理配置"""
     result = set_proxy_config(request.http_proxy, request.https_proxy)
     return result
+
+# 当前系统仓库相关路由
+@router.get("/current-repo")
+async def get_current_repo_route():
+    """获取当前系统仓库"""
+    repo_name = get_current_repo()
+    return {"success": True, "data": {"repo_name": repo_name}}
+
+class CurrentRepoRequest(BaseModel):
+    repo_name: str = ""
+
+@router.put("/current-repo")
+async def set_current_repo_route(request: CurrentRepoRequest):
+    """设置当前系统仓库"""
+    set_current_repo(request.repo_name)
+    log_service.info(f"当前系统仓库已设置为: {request.repo_name}", 'system')
+    return {"success": True, "message": f"当前系统仓库已设置为: {request.repo_name}"}
 
 # 全局域名/IP 设置相关路由
 @router.get("/global-domain")

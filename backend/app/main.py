@@ -9,48 +9,6 @@ init_db()
 
 # 现在可以安全地导入其他模块
 from .routes import router
-from .services import add_repo, get_all_repos
-
-DEFAULT_REPOS = [
-    {
-        "name": "飞牛容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "fnOS"
-    },
-    {
-        "name": "绿联新系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "UgreenNew"
-    },
-    {
-        "name": "绿联旧系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "Ugreen（Abandoned）"
-    },
-    {
-        "name": "极空间容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "ZSpace"
-    }
-]
-
-def init_default_repo():
-    repos = get_all_repos()
-    repo_names = [repo["name"] for repo in repos]
-    for repo_config in DEFAULT_REPOS:
-        if repo_config["name"] not in repo_names:
-            add_repo(
-                repo_url=repo_config["repo_url"],
-                branch=repo_config["branch"],
-                local_path=repo_config["local_path"],
-                name=repo_config["name"]
-            )
-
-init_default_repo()
 
 app = FastAPI(title="双栈商店 API", version="1.0.0")
 

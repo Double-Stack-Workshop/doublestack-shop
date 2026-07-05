@@ -68,11 +68,15 @@ async function loadRepositories() {
     const searchQuery = urlParams.get('search');
     
     try {
-        const response = await fetch(`${API_BASE_URL}/repos`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        const [reposResponse, currentRepoResponse] = await Promise.all([
+            fetch(`${API_BASE_URL}/repos`),
+            fetch(`${API_BASE_URL}/current-repo`)
+        ]);
+        
+        if (!reposResponse.ok) {
+            throw new Error(`HTTP error! status: ${reposResponse.status}`);
         }
-        const repos = await response.json();
+        const repos = await reposResponse.json();
         
         repos.forEach(repo => {
             const option = document.createElement('option');
@@ -81,9 +85,19 @@ async function loadRepositories() {
             select.appendChild(option);
         });
         
-        if (searchQuery && repos.length > 0) {
-            select.value = repos[0].name;
-            await loadYmlFiles(repos[0].name, searchQuery);
+        let selectedRepo = '';
+        if (currentRepoResponse.ok) {
+            const currentRepoData = await currentRepoResponse.json();
+            selectedRepo = currentRepoData.data?.repo_name || '';
+        }
+        
+        if (!selectedRepo && repos.length > 0) {
+            selectedRepo = repos[0].name;
+        }
+        
+        if (selectedRepo) {
+            select.value = selectedRepo;
+            await loadYmlFiles(selectedRepo, searchQuery || '');
         }
     } catch (error) {
         console.error('Error loading repositories:', error);

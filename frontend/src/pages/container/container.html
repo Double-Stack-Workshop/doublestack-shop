@@ -27,37 +27,38 @@
                 </div>
             </header>
 
-            <section class="stats-bar">
-                <div class="stat-item">
-                    <div class="stat-icon total">
-                        <i class="fab fa-docker"></i>
+            <div class="content-area">
+                <section class="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-icon total">
+                            <i class="fab fa-docker"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="totalCount">0</span>
+                            <span class="stat-label">总容器</span>
+                        </div>
                     </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="totalCount">0</span>
-                        <span class="stat-label">总容器</span>
+                    <div class="stat-item">
+                        <div class="stat-icon running">
+                            <i class="fas fa-play"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="runningCount">0</span>
+                            <span class="stat-label">运行中</span>
+                        </div>
                     </div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-icon running">
-                        <i class="fas fa-play"></i>
+                    <div class="stat-item">
+                        <div class="stat-icon stopped">
+                            <i class="fas fa-stop"></i>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stoppedCount">0</span>
+                            <span class="stat-label">已停止</span>
+                        </div>
                     </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="runningCount">0</span>
-                        <span class="stat-label">运行中</span>
-                    </div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-icon stopped">
-                        <i class="fas fa-stop"></i>
-                    </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="stoppedCount">0</span>
-                        <span class="stat-label">已停止</span>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="containers-grid">
+                <section class="containers-grid">
                 <div class="filter-bar">
                     <div class="filter-group">
                         <label>状态筛选:</label>
@@ -77,13 +78,10 @@
                     <div class="empty-state">
                         <i class="fas fa-inbox"></i>
                         <p>暂无容器数据</p>
-                        <button class="btn btn-primary" onclick="refreshContainers()">
-                            <i class="fas fa-refresh"></i>
-                            刷新数据
-                        </button>
                     </div>
                 </div>
-            </section>
+                </section>
+            </div>
 
             <div class="modal-overlay" id="modalOverlay" style="display: none;">
                 <div class="modal" id="containerModal">

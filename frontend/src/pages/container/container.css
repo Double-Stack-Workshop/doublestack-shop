@@ -21,11 +21,17 @@ body {
     display: flex;
     flex-direction: column;
     transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    background: #f0f2f5;
+    min-height: 100vh;
 }
 
 .sidebar.collapsed ~ .main-content {
     margin-left: 70px;
+}
+
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 20px;
 }
 
 .top-header {

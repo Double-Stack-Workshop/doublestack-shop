@@ -580,6 +580,35 @@ body {
     cursor: not-allowed;
 }
 
+.repo-card.current-repo {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.current-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 10px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.set-current-btn:hover {
+    background: rgba(251, 191, 36, 0.05);
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+
+.set-current-btn.active {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: #f59e0b;
+    color: #f59e0b;
+}
+
 .modal-overlay {
     display: none;
     position: fixed;

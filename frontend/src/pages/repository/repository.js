@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
     
     const addRepoBtn = document.getElementById('addRepoBtn');
+    const initDefaultReposBtn = document.getElementById('initDefaultReposBtn');
     const addRepoModal = document.getElementById('addRepoModal');
     const addRepoForm = document.getElementById('addRepoForm');
     const searchInput = document.getElementById('searchInput');
@@ -15,6 +16,34 @@ document.addEventListener('DOMContentLoaded', async function() {
     addRepoBtn.addEventListener('click', function() {
         addRepoModal.classList.add('active');
     });
+    
+    if (initDefaultReposBtn) {
+        initDefaultReposBtn.addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/repos/init-default`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    showMessage(result.message, 'success');
+                    await loadRepos();
+                } else {
+                    showMessage(result.message || '获取失败', 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误，请检查后端服务', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i><span>获取初始仓库</span>';
+            }
+        });
+    }
     
     addRepoForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -117,10 +146,15 @@ async function loadSidebar() {
     document.head.appendChild(script);
 }
 
+let currentRepoName = '';
+
 async function loadRepos() {
     try {
         const response = await fetch(`${API_BASE_URL}/repos`);
         const repos = await response.json();
+        
+        const currentRepo = repos.find(r => r.is_current);
+        currentRepoName = currentRepo ? currentRepo.name : '';
         
         const repoGrid = document.querySelector('.repo-grid');
         
@@ -128,20 +162,20 @@ async function loadRepos() {
             repoGrid.innerHTML = `
                 <div class="empty-state">
                     <i class="fab fa-github"></i>
-                    <p>暂无仓库，点击右上角添加仓库</p>
+                    <p>暂无仓库，点击右上角获取初始仓库</p>
                 </div>
             `;
             return;
         }
         
         repoGrid.innerHTML = repos.map(repo => `
-            <div class="repo-card" data-name="${repo.name}">
+            <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${repo.name}">
                 <div class="repo-header">
                     <div class="repo-icon">
                         <i class="fab fa-github"></i>
                     </div>
                     <div class="repo-info">
-                        <h3>${repo.name}</h3>
+                        <h3>${repo.name}${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
                         <p>${repo.url}</p>
                     </div>
                     <div class="repo-status ${repo.status}">
@@ -170,12 +204,65 @@ async function loadRepos() {
                         <i class="fas fa-refresh ${repo.status === 'syncing' ? 'fa-spin' : ''}"></i>
                         <span>${repo.status === 'syncing' ? '同步中' : '同步'}</span>
                     </button>
+                    <button class="action-btn set-current-btn ${repo.is_current ? 'active' : ''}" 
+                            onclick="setCurrentRepo('${repo.name}', this)">
+                        <i class="fas fa-star ${repo.is_current ? 'fa-solid' : 'fa-regular'}"></i>
+                        <span>${repo.is_current ? '已设为当前' : '设为当前'}</span>
+                    </button>
                 </div>
             </div>
         `).join('');
     } catch (error) {
         console.error('加载仓库失败:', error);
         showMessage('加载仓库列表失败，请检查后端服务', 'error');
+    }
+}
+
+async function setCurrentRepo(repoName, btn) {
+    const card = btn.closest('.repo-card');
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/current-repo`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ repo_name: repoName })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            currentRepoName = repoName;
+            
+            document.querySelectorAll('.repo-card').forEach(c => {
+                c.classList.remove('current-repo');
+            });
+            card.classList.add('current-repo');
+            
+            document.querySelectorAll('.set-current-btn').forEach(b => {
+                const icon = b.querySelector('i');
+                const span = b.querySelector('span');
+                b.classList.remove('active');
+                icon.className = 'fas fa-star fa-regular';
+                span.textContent = '设为当前';
+            });
+            
+            btn.classList.add('active');
+            btn.querySelector('i').className = 'fas fa-star fa-solid';
+            btn.querySelector('span').textContent = '已设为当前';
+            
+            document.querySelectorAll('.repo-info h3').forEach(h3 => {
+                h3.innerHTML = h3.textContent.replace(' <span class="current-badge">当前系统仓库</span>', '');
+            });
+            card.querySelector('.repo-info h3').innerHTML += ' <span class="current-badge">当前系统仓库</span>';
+            
+            showMessage(result.message, 'success');
+        } else {
+            showMessage(result.message || '设置失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请检查后端服务', 'error');
     }
 }
 
@@ -338,6 +425,34 @@ function loadUserInfo() {
     
     if (username) {
         document.getElementById('currentUsername').textContent = username;
+    }
+}
+
+async function initDefaultRepos() {
+    const btn = document.getElementById('initDefaultReposBtn');
+    if (!btn) return;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/repos/init-default`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showMessage(result.message, 'success');
+            await loadRepos();
+        } else {
+            showMessage(result.message || '获取失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请检查后端服务', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-download"></i><span>获取初始仓库</span>';
     }
 }
 
