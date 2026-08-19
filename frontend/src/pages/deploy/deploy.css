@@ -15,6 +15,19 @@ body {
     height: 100vh;
 }
 
+.mode-section,
+.select-section,
+.params-section,
+.editor-section {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    /* 不设任何 overflow：卡片按内容自然高度展示，
+       横向溢出由子元素 max-width + word-break 约束，
+       纵向滚条只留给最外层 content-area 和日志容器。 */
+    overflow: visible;
+}
+
 .mode-section {
     background: white;
     border-radius: 12px;
@@ -158,10 +171,16 @@ body {
 .content-area {
     flex: 1;
     padding: 25px 30px;
+    /* 整页的纵向滚动条放在这里，所有卡片高度自然撑开，靠这个统一滚 */
     overflow-y: auto;
+    overflow-x: visible;
     display: flex;
     flex-direction: column;
     gap: 20px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0; /* flex 子项防止无限撑开主容器 */
 }
 
 .section-header {
@@ -169,6 +188,16 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.section-actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .section-header h2 {
@@ -474,18 +503,32 @@ body {
     padding: 24px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
     border: 1px solid rgba(0, 0, 0, 0.04);
-    max-height: 350px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
+    gap: 0;
+    overflow: visible;
+}
+
+.deploy-progress-panel {
+    margin-bottom: 20px;
 }
 
 .log-container {
     background: #1e293b;
     border-radius: 12px;
     padding: 16px;
-    flex: 1;
-    max-height: 250px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
     overflow-y: auto;
+    /* 日志容器内部保留纵向滚动条，否则几十上百条日志会把页面拉得极长。
+       高度恢复到接近最初的设计：min-height 保证至少能看几行，max-height 给可视区留出其它卡片的空间。 */
+    min-height: 240px;
+    max-height: 360px;
 }
 
 .log-item {
@@ -495,6 +538,16 @@ body {
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 13px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    box-sizing: border-box;
+    max-width: 100%;
+    width: 100%;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.log-item i {
+    flex-shrink: 0;
+    min-width: 14px;
 }
 
 .log-item:last-child {

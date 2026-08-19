@@ -108,6 +108,42 @@
                 </div>
 
                 <div class="deploy-output" id="outputSection" style="display: none;">
+                    <div class="deploy-progress-panel" id="deployProgressPanel" style="display:none;">
+                        <div class="progress-summary">
+                            <div class="progress-summary-row">
+                                <span class="label">总耗时</span>
+                                <span class="value" id="totalElapsed">0.0s</span>
+                            </div>
+                            <div class="progress-summary-row">
+                                <span class="label">状态</span>
+                                <span class="value" id="deployStatus">准备中</span>
+                            </div>
+                        </div>
+                        <div class="stage-progress-item" data-stage="pull">
+                            <div class="stage-header">
+                                <i class="fas fa-download stage-icon pull"></i>
+                                <span class="stage-name">拉取镜像</span>
+                                <span class="stage-time" id="pullStageTime">—</span>
+                                <span class="stage-percent" id="pullStagePct">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-bar-fill" id="pullBar"></div>
+                            </div>
+                            <div class="stage-detail" id="pullStageDetail">等待开始</div>
+                        </div>
+                        <div class="stage-progress-item" data-stage="up">
+                            <div class="stage-header">
+                                <i class="fas fa-rocket stage-icon up"></i>
+                                <span class="stage-name">启动容器</span>
+                                <span class="stage-time" id="upStageTime">—</span>
+                                <span class="stage-percent" id="upStagePct">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-bar-fill" id="upBar"></div>
+                            </div>
+                            <div class="stage-detail" id="upStageDetail">等待开始</div>
+                        </div>
+                    </div>
                     <div class="section-header">
                         <h2>部署日志</h2>
                         <button id="clearLogBtn" class="btn btn-secondary">
@@ -122,6 +158,112 @@
                         </div>
                     </div>
                 </div>
+<style>
+.deploy-progress-panel {
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 0 0 20px 0;
+    color: #e2e8f0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+}
+.progress-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+.progress-summary-row { display: flex; gap: 10px; font-size: 13px; flex-wrap: wrap; min-width: 0; }
+.progress-summary-row .label { color: #94a3b8; }
+.progress-summary-row .value { color: #e2e8f0; font-weight: 600; word-break: break-all; }
+
+.stage-progress-item + .stage-progress-item { margin-top: 14px; }
+.stage-header {
+    display: flex;
+    align-items: center;
+    gap: 6px 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+    font-size: 13px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.stage-icon {
+    font-size: 14px;
+    width: 22px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.stage-icon.pull { color: #60a5fa; }
+.stage-icon.up { color: #34d399; }
+.stage-name { color: #cbd5e1; font-weight: 500; flex: 1 1 auto; min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
+.stage-time { color: #94a3b8; font-family: Consolas, monospace; word-break: break-all; }
+.stage-percent { color: #f8fafc; font-weight: 600; font-family: Consolas, monospace; flex-shrink: 0; }
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 6px;
+    background: rgba(148,163,184,0.15);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+.progress-bar-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+    transition: width 0.35s ease;
+    min-width: 0;
+}
+.stage-progress-item[data-stage="up"] .progress-bar-fill {
+    background: linear-gradient(90deg, #34d399 0%, #10b981 100%);
+}
+.stage-detail {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #94a3b8;
+    font-family: Consolas, Monaco, monospace;
+    min-height: 1em;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.log-item .log-time {
+    display: inline-block;
+    color: #7c8aa0;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 11px;
+    margin-right: 8px;
+    opacity: 0.85;
+    min-width: 74px;
+    flex-shrink: 0;
+}
+.log-item > span:last-of-type {
+    display: inline-block;
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    box-sizing: border-box;
+    max-width: calc(100% - 14px - 82px); /* 图标14+gap10+time74 → 留给文字的剩余空间 */
+}
+@media (max-width: 720px) {
+    .deploy-progress-panel { padding: 12px 12px; }
+    .stage-header { font-size: 12px; }
+    .stage-percent { font-size: 12px; }
+}
+</style>
             </div>
         </main>
     </div>

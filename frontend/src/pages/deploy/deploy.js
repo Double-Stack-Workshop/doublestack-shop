@@ -473,13 +473,105 @@ async function saveFileContent(repoName, fileName, content) {
     }
 }
 
+function formatDuration(sec) {
+    if (sec == null || isNaN(sec)) return '—';
+    sec = Number(sec);
+    if (sec < 60) return `${sec.toFixed(1)}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec - m * 60;
+    return `${m}m${s.toFixed(0)}s`;
+}
+
+function formatShortTime(isoStr) {
+    if (!isoStr) return '';
+    try {
+        const d = new Date(isoStr);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${hh}:${mm}:${ss}`;
+    } catch {
+        return '';
+    }
+}
+
+function resetDeployProgressPanel() {
+    const panel = document.getElementById('deployProgressPanel');
+    if (panel) panel.style.display = 'block';
+    ['pull', 'up'].forEach(stage => {
+        const bar = document.getElementById(`${stage}Bar`);
+        if (bar) bar.style.width = '0%';
+        const pct = document.getElementById(`${stage}StagePct`);
+        if (pct) pct.textContent = '0%';
+        const tm = document.getElementById(`${stage}StageTime`);
+        if (tm) tm.textContent = '—';
+        const det = document.getElementById(`${stage}StageDetail`);
+        if (det) det.textContent = stage === 'pull' ? '等待开始拉取...' : '等待启动...';
+    });
+    const totalEl = document.getElementById('totalElapsed');
+    if (totalEl) totalEl.textContent = '0.0s';
+    const st = document.getElementById('deployStatus');
+    if (st) { st.textContent = '运行中'; st.style.color = '#60a5fa'; }
+}
+
+function updateStageProgress(ev) {
+    const stage = ev.stage;
+    const bar = document.getElementById(`${stage}Bar`);
+    const pctEl = document.getElementById(`${stage}StagePct`);
+    const tmEl = document.getElementById(`${stage}StageTime`);
+    const detEl = document.getElementById(`${stage}StageDetail`);
+    if (!bar || !pctEl) return;
+    const pct = Math.max(0, Math.min(100, Number(ev.percent) || 0));
+    bar.style.width = `${pct}%`;
+    pctEl.textContent = `${pct.toFixed(1)}%`;
+    if (tmEl) {
+        const parts = [];
+        if (ev.elapsed_sec != null) parts.push(`用时 ${formatDuration(ev.elapsed_sec)}`);
+        if (ev.eta_sec != null && ev.eta_sec > 0 && pct < 99.9) parts.push(`预计剩余 ${formatDuration(ev.eta_sec)}`);
+        tmEl.textContent = parts.join(' · ') || '—';
+    }
+    if (detEl && ev.detail) detEl.textContent = ev.detail;
+}
+
+function finishDeployFlow(finalResult) {
+    const st = document.getElementById('deployStatus');
+    if (st && finalResult) {
+        if (finalResult.success) {
+            st.textContent = '成功';
+            st.style.color = '#34d399';
+        } else {
+            st.textContent = '失败';
+            st.style.color = '#f87171';
+        }
+    }
+    const totalEl = document.getElementById('totalElapsed');
+    if (totalEl && finalResult && finalResult.elapsed_sec != null) {
+        totalEl.textContent = formatDuration(finalResult.elapsed_sec);
+    }
+    // 如果某阶段进度条还没到 100，流结束了就按 100/按实际画一下
+    ['pull', 'up'].forEach(stage => {
+        const bar = document.getElementById(`${stage}Bar`);
+        const pctEl = document.getElementById(`${stage}StagePct`);
+        if (bar && pctEl && Number(bar.style.width || '0%') < 100) {
+            // 保持现状，不强制 100；但把"预计剩余"去掉
+            const tmEl = document.getElementById(`${stage}StageTime`);
+            if (tmEl && /预计剩余/.test(tmEl.textContent || '')) {
+                tmEl.textContent = (tmEl.textContent.match(/用时 [^·]+/) || ['—'])[0].replace('用时 ', '') === '用时' ? '—' : tmEl.textContent.replace(/ · 预计剩余.*/, '');
+            }
+        }
+    });
+}
+
 async function deployApplication(repoName, fileName) {
     const deployBtn = document.getElementById('deployBtn');
-    
+    const outputSection = document.getElementById('outputSection');
+    if (outputSection) outputSection.style.display = 'block';
+    resetDeployProgressPanel();
+
     try {
         deployBtn.disabled = true;
         addLog('info', `开始部署应用: ${fileName}`);
-        
+
         const response = await fetch(`${API_BASE_URL}/deploy`, {
             method: 'POST',
             headers: {
@@ -490,56 +582,95 @@ async function deployApplication(repoName, fileName) {
                 file_name: fileName
             })
         });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            if (result.data && result.data.detailed_logs) {
-                result.data.detailed_logs.forEach(log => {
-                    if (log.includes('[镜像拉取]')) {
-                        addLog('info', log);
-                    } else if (log.includes('[启动日志]')) {
-                        addLog('info', log);
-                    } else if (log.includes('[部署成功]')) {
-                        addLog('success', log);
-                    } else {
-                        addLog('info', log);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let finalResult = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let idx;
+            while ((idx = buffer.indexOf('\n\n')) >= 0) {
+                const raw = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 2);
+                if (!raw.startsWith('data:')) continue;
+                const jsonStr = raw.slice(5).trim();
+                if (!jsonStr) continue;
+                let event;
+                try {
+                    event = JSON.parse(jsonStr);
+                } catch {
+                    continue;
+                }
+                if (event.type === 'log') {
+                    const level = event.level === 'success' ? 'success' :
+                                  event.level === 'error' ? 'error' : 'info';
+                    addLog(level, event.message, event.ts);
+                } else if (event.type === 'progress') {
+                    updateStageProgress(event);
+                    // 汇总时间也同步刷新
+                    const totalEl = document.getElementById('totalElapsed');
+                    if (totalEl && event.elapsed_sec != null) {
+                        totalEl.textContent = formatDuration(event.elapsed_sec);
                     }
-                });
-            } else if (result.data && result.data.output) {
-                addLog('info', '部署日志: ' + result.data.output);
+                } else if (event.type === 'done') {
+                    finalResult = event;
+                    if (event.success) {
+                        addLog('success', event.message, event.ts);
+                        if (event.data && event.data.container_id) {
+                            addLog('info', '容器ID: ' + event.data.container_id, event.ts);
+                        }
+                    } else {
+                        addLog('error', event.message, event.ts);
+                    }
+                }
             }
-            addLog('success', '应用部署成功');
-            if (result.data && result.data.container_id) {
-                addLog('info', '容器ID: ' + result.data.container_id);
-            }
-        } else {
-            addLog('error', '部署失败: ' + result.message);
+        }
+
+        finishDeployFlow(finalResult);
+
+        if (!finalResult) {
+            addLog('warning', '部署流结束但未收到最终结果');
         }
     } catch (error) {
         addLog('error', '部署应用失败: ' + error.message);
+        const st = document.getElementById('deployStatus');
+        if (st) { st.textContent = '异常'; st.style.color = '#f87171'; }
     } finally {
         deployBtn.disabled = false;
     }
 }
 
-function addLog(type, message) {
+function addLog(type, message, ts) {
     const logContainer = document.getElementById('logContainer');
     const logItem = document.createElement('div');
     logItem.className = `log-item ${type}`;
-    
+
     const iconMap = {
         info: 'fas fa-info-circle',
         success: 'fas fa-check-circle',
         warning: 'fas fa-exclamation-triangle',
         error: 'fas fa-times-circle'
     };
-    
+
+    const tm = formatShortTime(ts);
+    const timeHtml = tm ? `<span class="log-time">[${tm}]</span>` : '';
+
+    const safeMsg = String(message).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     logItem.innerHTML = `
         <i class="${iconMap[type]}"></i>
-        <span>${message}</span>
+        ${timeHtml}
+        <span>${safeMsg}</span>
     `;
-    
+
     logContainer.appendChild(logItem);
     logContainer.scrollTop = logContainer.scrollHeight;
 }

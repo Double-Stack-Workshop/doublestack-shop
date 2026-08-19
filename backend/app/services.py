@@ -1,12 +1,455 @@
 import subprocess
 import os
+import re
 import shutil
 import time
+import threading
+import queue
 import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Generator
 from .schemas import YmlFile, RepoInfo
 from .logger import log_service
+
+
+# docker/plain 输出里常见的：
+#   (v2) 7c3c483d20b5 Downloading [====>  ] 44.82MB/210.4MB
+#   (v1) 70ba6939098d Downloading 19.43MB
+#   (v1) 05938142326a Extracting 867.9kB
+#   (尾) eb914bcc923c Download complete | Pull complete
+# Layer id 一般是行首或最前面的 12 位 hex。
+_SIZE_WITH_DENOM_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|kB|kb|mb|gb)\s*/\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|kB|kb|mb|gb)"
+)
+_SIZE_ABS_RE = re.compile(
+    r"(?:Downloading|Extracting|downloading|extracting)\s+(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|kB|kb|mb|gb)",
+    re.IGNORECASE,
+)
+_LAYER_ID_RE = re.compile(r"(?<!\w)([0-9a-f]{12})(?!\w)")
+_UNIT_MULT = {"b": 1, "kb": 1024, "mb": 1024 ** 2, "gb": 1024 ** 3, "tb": 1024 ** 4}
+_TOTAL_PROGRESS_STAGES = ("pull", "up")
+
+# v1 没有分母的 layer，用软上限估算 total。
+_DEFAULT_SOFT_CAPS = [
+    64 * 1024 ** 2,
+    256 * 1024 ** 2,
+    1024 * 1024 ** 2,
+    4 * 1024 ** 3,
+    16 * 1024 ** 3,
+    64 * 1024 ** 3,
+]
+
+
+def _human_bytes(n):
+    if n is None:
+        return "?"
+    for u, mult in (("TB", 1024 ** 4), ("GB", 1024 ** 3),
+                    ("MB", 1024 ** 2), ("KB", 1024), ("B", 1)):
+        if n >= mult:
+            return f"{n / mult:.2f}{u}"
+    return f"{n:.0f}B"
+
+
+def _choose_layer_soft_cap(cur_bytes: float, last_cap: float) -> float:
+    base_cap = max(last_cap, _DEFAULT_SOFT_CAPS[0])
+    if cur_bytes < base_cap:
+        return base_cap
+    for cap in _DEFAULT_SOFT_CAPS:
+        if cap >= cur_bytes:
+            return cap
+    return cur_bytes * 2
+
+
+def _extract_layer_id(line: str):
+    if not line:
+        return None
+    m = _LAYER_ID_RE.search(line)
+    return m.group(1) if m else None
+
+
+def _parse_progress_line(line: str):
+    """从单行原始 plain 文本抽取结构化进度信息，解析失败返回 None。
+
+    返回 dict:
+      layer_id: str or None
+      phase:    'download' | 'extract' | 'complete' | None
+      cur_b:    float or None (当前字节，已 complete 的层取已记录 total 当 cur)
+      total_b:  float or None (真实 total 字节，v1/complete 可能为空)
+      detail:   str (人类可读，用于前端进度条下方文字)
+    """
+    if not line:
+        return None
+    stripped = line.strip()
+    layer_id = _extract_layer_id(stripped)
+
+    # --- 1) 完成类: Download complete / Pull complete ---
+    if (layer_id and
+        ("Download complete" in stripped or "Pull complete" in stripped
+         or "Verifying Checksum" in stripped and "Download complete" in stripped)):
+        # Verifying Checksum 有时和 complete 同行就按 complete 算
+        if "Pull complete" in stripped or "Download complete" in stripped:
+            return {"layer_id": layer_id, "phase": "complete",
+                    "cur_b": None, "total_b": None,
+                    "detail": f"{layer_id or 'layer'} complete"}
+
+    # --- 2) 带分子/分母 (v2 或 v1 某些阶段) ---
+    m = _SIZE_WITH_DENOM_RE.search(stripped)
+    if m:
+        cur, cur_unit, total, total_unit = m.groups()
+        try:
+            cur_b = float(cur) * _UNIT_MULT[cur_unit.lower()]
+            total_b = float(total) * _UNIT_MULT[total_unit.lower()]
+        except Exception:
+            return None
+        if total_b <= 0:
+            return None
+        phase = ("download" if ("Downloading" in stripped or "downloading" in stripped)
+                 else "extract" if ("Extracting" in stripped or "extracting" in stripped)
+                 else None)
+        detail = f"{phase or 'progress'}: {cur}{cur_unit} / {total}{total_unit}"
+        return {"layer_id": layer_id, "phase": phase,
+                "cur_b": cur_b, "total_b": total_b, "detail": detail}
+
+    # --- 3) 只有绝对大小 (v1 典型) ---
+    m = _SIZE_ABS_RE.search(stripped)
+    if m:
+        abs_str, unit = m.groups()
+        try:
+            cur_b = float(abs_str) * _UNIT_MULT[unit.lower()]
+        except Exception:
+            return None
+        phase = m.group(0).split()[0].lower()  # downloading / extracting
+        detail = f"{phase}: {abs_str}{unit}"
+        return {"layer_id": layer_id, "phase": phase,
+                "cur_b": cur_b, "total_b": None, "detail": detail}
+
+    # --- 4) Waiting / Verifying Checksum / Pulling fs layer 这些无进度数值，
+    # 只要有 layer_id 就返回，给调用方标记该 layer「见过」但无数字更新 ---
+    if layer_id:
+        hint = None
+        if "Pulling fs layer" in stripped:
+            hint = "pulling fs layer"
+        elif "Waiting" in stripped:
+            hint = "waiting"
+        elif "Verifying Checksum" in stripped:
+            hint = "verifying checksum"
+        if hint:
+            return {"layer_id": layer_id, "phase": "meta",
+                    "cur_b": None, "total_b": None, "detail": f"{layer_id} {hint}"}
+
+    return None
+
+
+def _aggregate_percent(layers: dict):
+    """根据 layers dict 重算全局百分比：Σcur / Σeff_total * 100。
+
+    layers 结构: {layer_id: {cur, total, soft_cap, complete}}
+    eff_total 取：有真实 total 就用 total；complete 用 cur；否则 soft_cap。
+    未 complete 的层最多算 99.9%，防止"小层全部完了大层还在下"就显示 100% 的误导。
+    返回 (pct_0_to_999, detail_desc)。"""
+    sum_cur = 0.0
+    sum_total = 0.0
+    any_unfinished = False
+    largest_active_layer_detail = ""
+    largest_active_ratio = -1.0
+    for lid, l in layers.items():
+        cur = l.get("cur") or 0.0
+        total_real = l.get("total")
+        soft_cap = l.get("soft_cap") or _DEFAULT_SOFT_CAPS[0]
+        complete = bool(l.get("complete"))
+        if complete:
+            eff_total = total_real or max(cur, soft_cap)
+            eff_cur = eff_total
+        else:
+            any_unfinished = True
+            eff_total = total_real if total_real else soft_cap
+            eff_cur = min(cur, eff_total) if cur > 0 else 0.0
+            # 为了进度条下方 detail 能看到最"活跃"的层（进度最多的那层），挑 ratio 最高未完成的
+            if eff_total > 0:
+                ratio = eff_cur / eff_total
+                if ratio > largest_active_ratio:
+                    largest_active_ratio = ratio
+                    largest_active_layer_detail = (
+                        f"{lid}: {_human_bytes(eff_cur)} / "
+                        f"{_human_bytes(eff_total)}"
+                        + ("" if total_real else " (估)")
+                    )
+        sum_cur += eff_cur
+        sum_total += eff_total
+    if sum_total <= 0:
+        return 0.0, ""
+    pct = sum_cur / sum_total * 100.0
+    if any_unfinished:
+        pct = min(pct, 99.9)
+    # detail：优先显示最活跃层，否则显示汇总
+    if largest_active_layer_detail:
+        detail = largest_active_layer_detail
+    else:
+        detail = f"{_human_bytes(sum_cur)} / {_human_bytes(sum_total)}"
+    return pct, detail
+
+
+def _now_iso():
+    """返回东八区（UTC+8）本地时间的 ISO 字符串，秒级，固定不管服务器系统时区。"""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Shanghai")
+    except Exception:
+        # Py < 3.9 或无 IANA tzdata 时用固定偏移 +8:00
+        tz = datetime.timezone(datetime.timedelta(hours=8))
+    return datetime.datetime.now(tz).isoformat(timespec="seconds")
+
+
+def _stream_command(cmd: list, env: dict, timeout: int, stage: str, label: str, deployment_logs=None) -> Generator[dict, None, int]:
+    """运行子命令并逐行 yield 日志事件，最后返回进程 returncode。
+
+    合并 stdout/stderr，按 \\r 和 \\n 实时分段，让 docker pull 的进度条
+    也能流式输出。用后台线程读管道，主循环用短轮询+心跳避免页面假死。
+
+    事件类型:
+      {"type":"log", ..., "ts": ISO时间, "message": "..."}
+      {"type":"progress", ..., "ts": ISO时间, "stage": str, "percent": 0-100,
+       "detail": "Downloading 12MB/124MB", "elapsed_sec": float,
+       "eta_sec": float|null}
+      {"type":"done", ..., "ts": ISO时间, ...}
+
+    timeout 是「空闲超时」：连续 timeout 秒没有任何输出才 kill 进程，
+    不是总时长上限——慢网下拉大镜像只要持续有进度刷新就不会被误杀，
+    只有真正卡死（代理断了、镜像源挂了）才会触发。
+    """
+    # stdin=DEVNULL + Windows CREATE_NO_WINDOW：
+    # 防止子进程继承到终端后因等待输入或弹出控制台窗口而挂起
+    popen_kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "stdin": subprocess.DEVNULL,
+        "env": env,
+    }
+    if os.name == "nt":
+        try:
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
+    proc = subprocess.Popen(cmd, bufsize=0, **popen_kwargs)
+
+    # 使用一个独立哨兵对象，区分"读线程 EOF"和"超时无数据"
+    EOF_SENTINEL = object()
+
+    out_q: "queue.Queue[object]" = queue.Queue()
+
+    buffer = ""
+    HEARTBEAT_INTERVAL = 60.0
+    POLL_INTERVAL = 0.2
+    PROGRESS_EMIT_INTERVAL = 0.5
+    last_line_time = time.time()
+    last_heartbeat_time = time.time()
+    last_progress_emit = 0.0
+    start_idle_time = time.time()
+    started_at = time.time()
+    heartbeat_seq = 0
+
+    # layers: {layer_id: {cur, total, soft_cap, complete}}。未识别到 layer 时用 None 做 key
+    # 存一条 "__fallback__" 兜底条目，便于无 layer id 的行也能参与累计
+    layers: dict = {}
+
+    def _update_layer_from_info(info: dict):
+        """用 _parse_progress_line 产出的结构化信息更新 layers，返回 (changed: bool)。"""
+        lid = info.get("layer_id") or "__fallback__"
+        l = layers.get(lid)
+        if l is None:
+            l = {"cur": 0.0, "total": None, "soft_cap": _DEFAULT_SOFT_CAPS[0], "complete": False}
+            layers[lid] = l
+        phase = info.get("phase")
+        cur_b = info.get("cur_b")
+        total_b = info.get("total_b")
+        if phase == "complete":
+            l["complete"] = True
+            # 完成时如果之前已知 total_b 或 cur，eff_total 就按它们算；这里只改标志。
+            return True
+        if total_b is not None:
+            # 真实 total（v2 或 v1 某些分母版本）
+            if l.get("total") is None or total_b > l["total"]:
+                l["total"] = total_b
+        if cur_b is not None and cur_b > (l.get("cur") or 0.0):
+            l["cur"] = cur_b
+            # v1 无分母时需要同步扩 soft_cap（每层独立）
+            if l.get("total") is None:
+                l["soft_cap"] = _choose_layer_soft_cap(cur_b, l.get("soft_cap") or _DEFAULT_SOFT_CAPS[0])
+        return cur_b is not None or total_b is not None or phase == "complete" or phase == "meta"
+
+    stage_pct = 0.0
+    stage_last_detail = ""
+
+    def recompute_progress():
+        """根据 layers 重算全局 pct 和 detail，更新 stage_pct / stage_last_detail。"""
+        nonlocal stage_pct, stage_last_detail
+        if not layers:
+            return
+        pct, detail = _aggregate_percent(layers)
+        # 百分比只升不降：聚合结果若比当前低（比如新 layer 冒出来分母很大稀释）则保持原值
+        if pct > stage_pct:
+            stage_pct = pct
+        if detail:
+            stage_last_detail = detail
+
+    def push_progress(force=False):
+        """基于 stage_pct / stage_last_detail 推 SSE progress 事件（限频）。"""
+        nonlocal last_progress_emit
+        now = time.time()
+        if (now - last_progress_emit) < PROGRESS_EMIT_INTERVAL and not force:
+            return None
+        elapsed = now - started_at
+        pct_effective = max(0.1, min(99.99, stage_pct))
+        if stage_pct >= 99.9:
+            eta = 0.0
+        else:
+            eta = max(0.0, (elapsed / pct_effective) * (100.0 - pct_effective))
+        last_progress_emit = now
+        return {
+            "type": "progress",
+            "stage": stage,
+            "percent": round(stage_pct, 2),
+            "detail": stage_last_detail,
+            "elapsed_sec": round(elapsed, 1),
+            "eta_sec": round(eta, 1),
+            "ts": _now_iso(),
+        }
+
+    def flush_buffer(force: bool = False):
+        nonlocal buffer, last_line_time
+        decoded_chunks = 0
+        parts = re.split(r"[\r\n]", buffer)
+        if not force:
+            keep, emit = parts[-1], parts[:-1]
+        else:
+            keep, emit = "", parts
+        buffer = keep
+        for part in emit:
+            line = part.rstrip()
+            if not line:
+                continue
+            decoded_chunks += 1
+
+            if stage in _TOTAL_PROGRESS_STAGES:
+                info = _parse_progress_line(line)
+                if info:
+                    _update_layer_from_info(info)
+                    recompute_progress()
+                    if stage_pct > 0 or stage_last_detail:
+                        pev = push_progress(force=False)
+                        if pev is not None:
+                            yield pev
+
+            msg = f"{label} {line}"
+            if deployment_logs is not None:
+                deployment_logs.append(msg)
+            yield {"type": "log", "level": "info", "stage": stage, "message": msg, "ts": _now_iso()}
+        if decoded_chunks:
+            last_line_time = time.time()
+
+    def _reader():
+        try:
+            stdout = proc.stdout
+            while True:
+                try:
+                    chunk = stdout.read1(4096)  # type: ignore[union-attr]
+                except AttributeError:
+                    # 某些 Python/Windows 组合未实现 read1，退化成 read
+                    chunk = stdout.read(4096)  # type: ignore[union-attr]
+                if not chunk:
+                    break
+                out_q.put(chunk)
+        except Exception:
+            pass
+        finally:
+            out_q.put(EOF_SENTINEL)
+
+    reader_thread = threading.Thread(target=_reader, daemon=True)
+    reader_thread.start()
+
+    try:
+        while True:
+            # 短轮询：每次最多等 POLL_INTERVAL，方便穿插心跳和空闲计时
+            remaining_idle = (timeout - (time.time() - start_idle_time)) if timeout else None
+            if remaining_idle is not None:
+                wait_timeout = min(POLL_INTERVAL, max(0.05, remaining_idle))
+            else:
+                wait_timeout = POLL_INTERVAL
+            try:
+                item = out_q.get(timeout=wait_timeout)
+            except queue.Empty:
+                item = None
+
+            now = time.time()
+
+            # --- 情况 1：超时（本轮没拿到任何队列条目）
+            if item is None:
+                if proc.poll() is None:
+                    # 进程仍在运行
+                    if timeout and (now - start_idle_time) > timeout:
+                        proc.kill()
+                        raise subprocess.TimeoutExpired(cmd, timeout)
+                    if (now - last_heartbeat_time) >= HEARTBEAT_INTERVAL:
+                        heartbeat_seq += 1
+                        elapsed = int(now - last_line_time)
+                        msg = f"{label} [心跳 #{heartbeat_seq}] 仍在运行中，{elapsed}s 无新输出，请稍候..."
+                        if deployment_logs is not None:
+                            deployment_logs.append(msg)
+                        yield {"type": "log", "level": "info", "stage": stage, "message": msg, "ts": _now_iso()}
+                        # 心跳时顺手推进一次 progress（刷新 elapsed/ETA；pct/detail 从已缓存的 stage_pct / stage_last_detail 取）
+                        if stage in _TOTAL_PROGRESS_STAGES:
+                            pev = push_progress(force=False)
+                            if pev is not None:
+                                yield pev
+                        last_heartbeat_time = now
+                    continue
+                # 进程已退出但还没收到 EOF_SENTINEL：继续循环收末尾数据
+                continue
+
+            # --- 情况 2：读线程说 EOF
+            if item is EOF_SENTINEL:
+                break
+
+            # --- 情况 3：实际字节数据
+            chunk = item  # bytes
+            start_idle_time = now
+            buffer += chunk.decode("utf-8", errors="replace")
+            for ev in flush_buffer(force=False):
+                yield ev
+
+        # 结束前：强制把最后一段残留 flush 出来，再推送一条 100% 进度事件
+        for ev in flush_buffer(force=True):
+            yield ev
+        if stage in _TOTAL_PROGRESS_STAGES:
+            final_total_elapsed = time.time() - started_at
+            final_progress_event = {
+                "type": "progress",
+                "stage": stage,
+                "percent": 100.0,
+                "detail": stage_last_detail or "完成",
+                "elapsed_sec": round(final_total_elapsed, 1),
+                "eta_sec": 0.0,
+                "ts": _now_iso(),
+            }
+            yield final_progress_event
+            # 同时 append 一条 summary 到日志，便于事后查询耗时
+            summary = f"{label} [{stage}] 阶段完成，耗时 {round(final_total_elapsed, 1)} 秒"
+            if deployment_logs is not None:
+                deployment_logs.append(summary)
+            yield {"type": "log", "level": "info", "stage": stage, "message": summary, "ts": _now_iso()}
+    finally:
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+        reader_thread.join(timeout=2)
+    return proc.returncode
 
 REPOS_DIR = Path("./repos")
 REPOS_DIR.mkdir(exist_ok=True)
@@ -506,9 +949,18 @@ def delete_repo(repo_name: str) -> bool:
     log_service.warning(f"删除仓库失败: {repo_name} - 仓库不存在", 'system')
     return False
 
-def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
+def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
+    """流式部署 YML，逐条 yield 事件 dict。
+
+    事件结构:
+      {"type": "log", "level": "info", "stage": "start|pull|up", "message": "...", "ts": ISO时间}
+      {"type": "progress", "stage": "pull|up", "percent": 0-100, "detail": "...",
+       "elapsed_sec": float, "eta_sec": float, "ts": ISO时间}
+      {"type": "done", "success": bool, "message": "...", "data": {...},
+       "ts": ISO时间, "elapsed_sec": 本阶段总耗时}
+    """
     from .database import add_deployment
-    
+
     for repo in repos_db:
         if repo.name == repo_name:
             for yml_file in repo.yml_files:
@@ -517,8 +969,8 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                     actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
                     repo_dir = REPOS_DIR / actual_repo_dir_name
                     yml_full_path = repo_dir / yml_file.path
-                    
-                    # 设置环境变量（包含代理配置）
+
+                    # 设置环境变量（包含代理配置 + 强制 plain 进度）
                     env = os.environ.copy()
                     http_proxy = proxy_config["http_proxy"]
                     https_proxy = proxy_config["https_proxy"] or http_proxy
@@ -528,57 +980,64 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                     if https_proxy:
                         env["HTTPS_PROXY"] = https_proxy
                         env["https_proxy"] = https_proxy
-                    
+                    # 非 TTY 下 docker-compose/docker 默认会禁用交互进度条，强制 plain 文本输出
+                    # 否则子进程管道里什么都不吐，页面看起来就是"卡住"
+                    # 注：只在 env 里塞 COMPOSE_PROGRESS_TYPE=plain，不在命令行加 `--progress plain`
+                    #     因为 docker-compose v1 (1.x) 会报 "unknown flag: --progress" 直接失败
+                    env["COMPOSE_PROGRESS_TYPE"] = "plain"
+                    env["PROGRESS_NO_TRUNC"] = "1"
+                    env["PYTHONUNBUFFERED"] = "1"
+
+                    deployment_logs = []
+                    deploy_started_at = time.time()
+
+                    def log(msg, stage="start"):
+                        deployment_logs.append(msg)
+                        return {"type": "log", "level": "info", "stage": stage, "message": msg, "ts": _now_iso()}
+
                     try:
-                        deployment_logs = []
-                        
-                        deployment_logs.append(f"[部署开始] 正在处理文件: {yml_file.name}")
-                        deployment_logs.append(f"[部署开始] 文件路径: {yml_full_path}")
-                        
-                        pull_result = subprocess.run(
+                        yield log(f"[部署开始] 正在处理文件: {yml_file.name}")
+                        yield log(f"[部署开始] 文件路径: {yml_full_path}")
+
+                        # 拉取镜像（实时流式输出）
+                        pull_returncode = yield from _stream_command(
                             ["docker-compose", "-f", str(yml_full_path), "pull"],
-                            capture_output=True,
-                            text=True,
-                            timeout=300,
-                            env=env
+                            env, timeout=300, stage="pull", label="[镜像拉取]",
+                            deployment_logs=deployment_logs,
                         )
-                        
-                        if pull_result.stdout:
-                            for line in pull_result.stdout.strip().split('\n'):
-                                if line.strip():
-                                    deployment_logs.append(f"[镜像拉取] {line.strip()}")
-                        
-                        if pull_result.stderr:
-                            for line in pull_result.stderr.strip().split('\n'):
-                                if line.strip():
-                                    deployment_logs.append(f"[镜像拉取] {line.strip()}")
-                        
-                        deployment_logs.append("[部署阶段] 启动容器...")
-                        
-                        up_result = subprocess.run(
+                        if pull_returncode != 0:
+                            total_elapsed = round(time.time() - deploy_started_at, 1)
+                            log_service.error(f"镜像拉取失败: {yml_file.name} - pull 阶段返回码 {pull_returncode}", 'deploy')
+                            yield {
+                                "type": "done",
+                                "success": False,
+                                "message": f"部署失败: 拉取镜像阶段返回码 {pull_returncode}",
+                                "data": {
+                                    "repo_name": repo_name,
+                                    "file_name": yml_file.name,
+                                    "file_path": yml_file.path,
+                                    "status": "failed",
+                                    "detailed_logs": deployment_logs,
+                                },
+                                "ts": _now_iso(),
+                                "elapsed_sec": total_elapsed,
+                            }
+                            return
+
+                        yield log("[部署阶段] 启动容器...", stage="up")
+
+                        # 启动容器（实时流式输出）。注意 docker-compose up 在镜像缺失时会自行触发 pull，
+                        # 所以这里的空闲超时要和 pull 阶段同等宽松，避免慢网下长下载误杀。
+                        up_returncode = yield from _stream_command(
                             ["docker-compose", "-f", str(yml_full_path), "up", "-d"],
-                            capture_output=True,
-                            text=True,
-                            timeout=120,
-                            env=env
+                            env, timeout=300, stage="up", label="[启动日志]",
+                            deployment_logs=deployment_logs,
                         )
-                        
-                        if up_result.stdout:
-                            for line in up_result.stdout.strip().split('\n'):
-                                if line.strip():
-                                    deployment_logs.append(f"[启动日志] {line.strip()}")
-                        
-                        if up_result.stderr:
-                            for line in up_result.stderr.strip().split('\n'):
-                                if line.strip():
-                                    deployment_logs.append(f"[启动日志] {line.strip()}")
-                        
-                        result = up_result
-                        
-                        if result.returncode == 0:
+
+                        if up_returncode == 0:
                             container_id = None
                             container_name = None
-                            
+
                             try:
                                 ps_result = subprocess.run(
                                     ["docker-compose", "-f", str(yml_full_path), "ps", "-q"],
@@ -588,7 +1047,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                                 )
                                 if ps_result.returncode == 0 and ps_result.stdout.strip():
                                     container_id = ps_result.stdout.strip().split('\n')[0]
-                                
+
                                 ps_full_result = subprocess.run(
                                     ["docker-compose", "-f", str(yml_full_path), "ps"],
                                     capture_output=True,
@@ -601,16 +1060,21 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                                         container_name = lines[1].split()[0]
                             except Exception:
                                 pass
-                            
+
                             add_deployment(repo_name, yml_file.name, container_id, container_name, 'deployed', f'部署成功')
-                            
-                            deployment_logs.append(f"[部署成功] 容器ID: {container_id}")
-                            deployment_logs.append(f"[部署成功] 容器名称: {container_name}")
-                            
-                            # 记录日志（包含详细部署日志）
+
+                            success_log1 = f"[部署成功] 容器ID: {container_id}"
+                            success_log2 = f"[部署成功] 容器名称: {container_name}"
+                            deployment_logs.append(success_log1)
+                            deployment_logs.append(success_log2)
+                            yield {"type": "log", "level": "success", "stage": "done", "message": success_log1, "ts": _now_iso()}
+                            yield {"type": "log", "level": "success", "stage": "done", "message": success_log2, "ts": _now_iso()}
+
                             log_service.success(f"容器部署成功: {yml_file.name} (容器名: {container_name})", 'deploy', deployment_logs)
-                            
-                            return {
+
+                            total_elapsed = round(time.time() - deploy_started_at, 1)
+                            yield {
+                                "type": "done",
                                 "success": True,
                                 "message": f"部署成功: {yml_file.name}",
                                 "data": {
@@ -618,66 +1082,100 @@ def deploy_yml(repo_name: str, file_path: str) -> Optional[Dict]:
                                     "file_name": yml_file.name,
                                     "file_path": yml_file.path,
                                     "status": "deployed",
-                                    "output": result.stdout,
                                     "detailed_logs": deployment_logs,
                                     "container_id": container_id,
                                     "container_name": container_name
-                                }
+                                },
+                                "ts": _now_iso(),
+                                "elapsed_sec": total_elapsed,
                             }
+                            return
                         else:
-                            # 记录日志
-                            log_service.error(f"容器部署失败: {yml_file.name} - {result.stderr}", 'deploy')
-                            return {
+                            total_elapsed = round(time.time() - deploy_started_at, 1)
+                            log_service.error(f"容器部署失败: {yml_file.name} - up 阶段返回码 {up_returncode}", 'deploy')
+                            yield {
+                                "type": "done",
                                 "success": False,
-                                "message": f"部署失败: {result.stderr}",
+                                "message": f"部署失败: up 阶段返回码 {up_returncode}",
                                 "data": {
                                     "repo_name": repo_name,
                                     "file_name": yml_file.name,
                                     "file_path": yml_file.path,
                                     "status": "failed",
-                                    "error": result.stderr
-                                }
+                                    "detailed_logs": deployment_logs
+                                },
+                                "ts": _now_iso(),
+                                "elapsed_sec": total_elapsed,
                             }
+                            return
                     except subprocess.TimeoutExpired:
-                        # 记录日志
+                        total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"容器部署超时: {yml_file.name}", 'deploy')
-                        return {
+                        yield {
+                            "type": "done",
                             "success": False,
                             "message": "部署超时",
                             "data": {
                                 "repo_name": repo_name,
                                 "file_name": yml_file.name,
                                 "file_path": yml_file.path,
-                                "status": "timeout"
-                            }
+                                "status": "timeout",
+                                "detailed_logs": deployment_logs
+                            },
+                            "ts": _now_iso(),
+                            "elapsed_sec": total_elapsed,
                         }
+                        return
                     except FileNotFoundError:
-                        # 记录日志
+                        total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"docker-compose 命令未找到: {yml_file.name}", 'deploy')
-                        return {
+                        yield {
+                            "type": "done",
                             "success": False,
                             "message": "docker-compose 命令未找到，请确保已安装 Docker Compose",
                             "data": {
                                 "repo_name": repo_name,
                                 "file_name": yml_file.name,
                                 "file_path": yml_file.path,
-                                "status": "error"
-                            }
+                                "status": "error",
+                                "detailed_logs": deployment_logs
+                            },
+                            "ts": _now_iso(),
+                            "elapsed_sec": total_elapsed,
                         }
+                        return
                     except Exception as e:
-                        # 记录日志
+                        total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"容器部署异常: {yml_file.name} - {str(e)}", 'deploy')
-                        return {
+                        yield {
+                            "type": "done",
                             "success": False,
                             "message": f"部署异常: {str(e)}",
                             "data": {
                                 "repo_name": repo_name,
                                 "file_name": yml_file.name,
                                 "file_path": yml_file.path,
-                                "status": "error"
-                            }
+                                "status": "error",
+                                "detailed_logs": deployment_logs
+                            },
+                            "ts": _now_iso(),
+                            "elapsed_sec": total_elapsed,
                         }
-    return None
+                        return
+    # 未找到对应仓库/文件
+    yield {
+        "type": "done",
+        "success": False,
+        "message": "仓库或文件不存在",
+        "data": {
+            "repo_name": repo_name,
+            "file_name": file_path,
+            "file_path": file_path,
+            "status": "error"
+        },
+        "ts": _now_iso(),
+        "elapsed_sec": 0.0,
+    }
 
 def get_running_containers_count() -> int:
     try:
@@ -1076,7 +1574,16 @@ def search_dockerhub_images(query: str) -> list:
     except Exception:
         return []
 
-def pull_image(image_name: str) -> Dict:
+def pull_image(image_name: str) -> Generator[dict, None, None]:
+    """流式拉取镜像，逐条 yield 事件 dict。
+
+    事件结构:
+      {"type": "log", ..., "stage": "pull", "message": "...", "ts": ISO时间}
+      {"type": "progress", "stage": "pull", "percent": 0-100, "detail": "...",
+       "elapsed_sec": float, "eta_sec": float, "ts": ISO时间}
+      {"type": "done", "success": bool, "message": "...",
+       "data": {"image_name": ..., "logs": [...], "ts": ISO时间, "elapsed_sec": 总耗时}}
+    """
     try:
         env = os.environ.copy()
         http_proxy = proxy_config["http_proxy"]
@@ -1087,33 +1594,56 @@ def pull_image(image_name: str) -> Dict:
         if https_proxy:
             env["HTTPS_PROXY"] = https_proxy
             env["https_proxy"] = https_proxy
-        
-        result = subprocess.run(
+        # 非 TTY 下 docker pull 默认会压缩进度输出，强制 plain 文本让管道能读到每一行
+        env["PROGRESS_NO_TRUNC"] = "1"
+        env["PYTHONUNBUFFERED"] = "1"
+
+        pull_logs = []
+        started_at = time.time()
+
+        # 注：docker 19.03+ 才支持 `--progress plain`，旧版会报 unknown flag，
+        # 所以这里不加命令行参数，仅依赖 env PROGRESS_NO_TRUNC=1 让输出更稳定。
+        returncode = yield from _stream_command(
             ["docker", "pull", image_name],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=env
+            env, timeout=300, stage="pull", label="[镜像拉取]",
+            deployment_logs=pull_logs,
         )
-        
-        if result.returncode == 0:
-            # 刷新缓存
+        total_elapsed = round(time.time() - started_at, 1)
+
+        if returncode == 0:
             try:
                 refresh_images_cache()
             except Exception as e:
                 print(f"刷新镜像缓存失败: {e}")
             log_service.success(f"镜像拉取成功: {image_name}", 'image')
-            return {"success": True, "message": f"镜像拉取成功: {image_name}"}
+            yield {
+                "type": "done",
+                "success": True,
+                "message": f"镜像拉取成功: {image_name}",
+                "data": {"image_name": image_name, "logs": pull_logs},
+                "ts": _now_iso(),
+                "elapsed_sec": total_elapsed,
+            }
         else:
-            log_service.error(f"镜像拉取失败: {image_name} - {result.stderr}", 'image')
-            return {"success": False, "message": f"拉取失败: {result.stderr}"}
+            log_service.error(f"镜像拉取失败: {image_name} - 返回码 {returncode}", 'image')
+            yield {
+                "type": "done",
+                "success": False,
+                "message": f"拉取失败: 返回码 {returncode}",
+                "data": {"image_name": image_name, "logs": pull_logs},
+                "ts": _now_iso(),
+                "elapsed_sec": total_elapsed,
+            }
     except subprocess.TimeoutExpired:
         log_service.error(f"镜像拉取超时: {image_name}", 'image')
-        return {"success": False, "message": "拉取操作超时"}
+        yield {"type": "done", "success": False, "message": "拉取操作超时",
+               "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
     except FileNotFoundError:
-        return {"success": False, "message": "Docker命令不可用"}
+        yield {"type": "done", "success": False, "message": "Docker命令不可用",
+               "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
     except Exception as e:
-        return {"success": False, "message": f"拉取失败: {str(e)}"}
+        yield {"type": "done", "success": False, "message": f"拉取失败: {str(e)}",
+               "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
 
 import requests
 import time

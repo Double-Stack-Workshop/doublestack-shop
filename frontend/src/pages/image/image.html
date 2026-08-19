@@ -8,6 +8,92 @@
     <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
     <link rel="stylesheet" href="./image.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .pull-log-container {
+            max-height: 240px;
+            overflow-y: auto;
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            margin-top: 6px;
+        }
+        .pull-log-item {
+            padding: 2px 0;
+            word-break: break-all;
+            white-space: pre-wrap;
+            display: flex;
+            gap: 8px;
+        }
+        .pull-log-item .pull-log-time {
+            color: #64748b;
+            font-size: 11px;
+            opacity: 0.85;
+            min-width: 64px;
+            flex-shrink: 0;
+        }
+        .pull-log-item .pull-log-msg { flex: 1; }
+        .pull-log-item.info { color: #cbd5e1; }
+        .pull-log-item.success { color: #34d399; }
+        .pull-log-item.error { color: #f87171; }
+
+        .pull-progress-panel {
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-top: 6px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .pull-progress-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .pull-progress-info { display: flex; gap: 8px; align-items: center; color: #cbd5e1; flex-wrap: wrap; word-break: break-all; }
+        .pull-progress-icon { color: #60a5fa; }
+        .pull-progress-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; word-break: break-all; }
+        .pull-progress-meta .sep { color: #475569; }
+        .pull-progress-meta #pullProgressPct { color: #f8fafc; font-weight: 600; font-family: Consolas, monospace; }
+        .pull-progress-meta #pullProgressTime { color: #94a3b8; font-family: Consolas, monospace; font-size: 12px; }
+        .pull-progress-bar {
+            width: 100%;
+            height: 8px;
+            border-radius: 6px;
+            background: rgba(148,163,184,0.15);
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .pull-progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+            transition: width 0.3s ease;
+            min-width: 0;
+        }
+        .pull-progress-detail {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #94a3b8;
+            font-family: Consolas, Monaco, monospace;
+            min-height: 1em;
+            word-break: break-all;
+            overflow-wrap: anywhere;
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-container" id="appContainer">
@@ -90,6 +176,30 @@
                     <div class="form-group">
                         <label for="tag">标签 <span class="optional">(可选，默认为latest)</span></label>
                         <input type="text" id="tag" placeholder="latest" value="latest">
+                    </div>
+                    <div class="form-group" id="pullProgressGroup" style="display:none;">
+                        <label>拉取进度</label>
+                        <div class="pull-progress-panel">
+                            <div class="pull-progress-head">
+                                <div class="pull-progress-info">
+                                    <i class="fas fa-download pull-progress-icon"></i>
+                                    <span>下载中</span>
+                                </div>
+                                <div class="pull-progress-meta">
+                                    <span id="pullProgressPct">0%</span>
+                                    <span class="sep">·</span>
+                                    <span id="pullProgressTime">用时 0.0s</span>
+                                </div>
+                            </div>
+                            <div class="pull-progress-bar">
+                                <div class="pull-progress-bar-fill" id="pullProgressBar"></div>
+                            </div>
+                            <div class="pull-progress-detail" id="pullProgressDetail">准备中...</div>
+                        </div>
+                    </div>
+                    <div class="form-group" id="pullLogGroup" style="display:none;">
+                        <label>拉取日志</label>
+                        <div id="pullLogContainer" class="pull-log-container"></div>
                     </div>
                     <div class="form-actions">
                         <button type="button" class="btn-cancel" onclick="closeModal('pullImageModal')">取消</button>

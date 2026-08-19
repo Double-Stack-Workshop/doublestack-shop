@@ -9,8 +9,9 @@ init_db()
 
 # 现在可以安全地导入其他模块
 from .routes import router
+from .version import VERSION
 
-app = FastAPI(title="双栈商店 API", version="1.0.0")
+app = FastAPI(title="双栈商店 API", version=VERSION)
 
 app.add_middleware(
     CORSMiddleware,

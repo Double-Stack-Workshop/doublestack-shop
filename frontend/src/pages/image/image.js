@@ -42,22 +42,96 @@ document.addEventListener('DOMContentLoaded', async function() {
         dockerHubModal.classList.add('active');
     });
     
+    function formatDuration2(sec) {
+        if (sec == null || isNaN(sec)) return '—';
+        sec = Number(sec);
+        if (sec < 60) return `${sec.toFixed(1)}s`;
+        const m = Math.floor(sec / 60);
+        const s = sec - m * 60;
+        return `${m}m${s.toFixed(0)}s`;
+    }
+
+    function formatShortTime2(isoStr) {
+        if (!isoStr) return '';
+        try {
+            const d = new Date(isoStr);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            return `${hh}:${mm}:${ss}`;
+        } catch {
+            return '';
+        }
+    }
+
+    function resetPullProgress() {
+        const pg = document.getElementById('pullProgressGroup');
+        if (pg) pg.style.display = 'block';
+        const bar = document.getElementById('pullProgressBar');
+        const pct = document.getElementById('pullProgressPct');
+        const tm = document.getElementById('pullProgressTime');
+        const det = document.getElementById('pullProgressDetail');
+        if (bar) bar.style.width = '0%';
+        if (pct) pct.textContent = '0%';
+        if (tm) tm.textContent = '用时 0.0s';
+        if (det) det.textContent = '准备中...';
+    }
+
     pullImageForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const imageName = document.getElementById('imageName').value.trim();
         const tag = document.getElementById('tag').value.trim() || 'latest';
-        
+
         if (!imageName) {
             showMessage('请输入镜像名称', 'error');
             return;
         }
-        
+
         const fullImageName = imageName.includes(':') ? imageName : `${imageName}:${tag}`;
-        
+
         const submitBtn = pullImageForm.querySelector('.btn-submit');
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 拉取中...';
-        
+
+        resetPullProgress();
+
+        const pullLogGroup = document.getElementById('pullLogGroup');
+        const pullLogContainer = document.getElementById('pullLogContainer');
+        pullLogGroup.style.display = 'block';
+        pullLogContainer.innerHTML = '';
+
+        const addPullLog = (type, msg, ts) => {
+            const item = document.createElement('div');
+            item.className = `pull-log-item ${type}`;
+            const tm = formatShortTime2(ts);
+            const timeHtml = tm ? `<span class="pull-log-time">[${tm}]</span>` : '';
+            const safeMsg = String(msg).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+            item.innerHTML = `${timeHtml}<span class="pull-log-msg">${safeMsg}</span>`;
+            pullLogContainer.appendChild(item);
+            pullLogContainer.scrollTop = pullLogContainer.scrollHeight;
+        };
+
+        const updatePullProgress = (ev) => {
+            const bar = document.getElementById('pullProgressBar');
+            const pctEl = document.getElementById('pullProgressPct');
+            const tmEl = document.getElementById('pullProgressTime');
+            const detEl = document.getElementById('pullProgressDetail');
+            if (!bar || !pctEl) return;
+            const pct = Math.max(0, Math.min(100, Number(ev.percent) || 0));
+            bar.style.width = `${pct}%`;
+            pctEl.textContent = `${pct.toFixed(1)}%`;
+            if (tmEl) {
+                let tm = `用时 ${formatDuration2(ev.elapsed_sec)}`;
+                if (ev.eta_sec != null && ev.eta_sec > 0 && pct < 99.9) tm += ` · 剩余 ${formatDuration2(ev.eta_sec)}`;
+                tmEl.textContent = tm;
+            }
+            if (detEl && ev.detail) detEl.textContent = ev.detail;
+        };
+
+        let success = false;
+        let finalMsg = '';
+        let finalElapsed = 0;
+
         try {
             const response = await fetch(`${API_BASE_URL}/images/pull`, {
                 method: 'POST',
@@ -68,19 +142,71 @@ document.addEventListener('DOMContentLoaded', async function() {
                     image_name: fullImageName
                 })
             });
-            
-            const result = await response.json();
-            
-            if (response.ok && result.success) {
-                showMessage(result.message, 'success');
-                closeModal('pullImageModal');
-                pullImageForm.reset();
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let idx;
+                while ((idx = buffer.indexOf('\n\n')) >= 0) {
+                    const raw = buffer.slice(0, idx);
+                    buffer = buffer.slice(idx + 2);
+                    if (!raw.startsWith('data:')) continue;
+                    const jsonStr = raw.slice(5).trim();
+                    if (!jsonStr) continue;
+                    let event;
+                    try {
+                        event = JSON.parse(jsonStr);
+                    } catch {
+                        continue;
+                    }
+                    if (event.type === 'log') {
+                        addPullLog('info', event.message, event.ts);
+                    } else if (event.type === 'progress') {
+                        updatePullProgress(event);
+                    } else if (event.type === 'done') {
+                        success = event.success;
+                        finalMsg = event.message;
+                        finalElapsed = Number(event.elapsed_sec) || 0;
+                        // 拉取完成，强制补 100% 显示
+                        updatePullProgress({
+                            percent: 100,
+                            elapsed_sec: finalElapsed,
+                            eta_sec: 0,
+                            detail: event.success ? '拉取完成' : '拉取失败',
+                        });
+                        addPullLog(event.success ? 'success' : 'error',
+                                   event.message + (finalElapsed ? `，耗时 ${formatDuration2(finalElapsed)}` : ''),
+                                   event.ts);
+                    }
+                }
+            }
+
+            if (success) {
+                showMessage(finalMsg, 'success');
+                setTimeout(() => {
+                    closeModal('pullImageModal');
+                    pullImageForm.reset();
+                    pullLogGroup.style.display = 'none';
+                    const pg = document.getElementById('pullProgressGroup');
+                    if (pg) pg.style.display = 'none';
+                }, 800);
                 await loadImages();
             } else {
-                showMessage(result.message || '拉取失败', 'error');
+                showMessage(finalMsg || '拉取失败', 'error');
             }
         } catch (error) {
             showMessage('网络错误，请检查后端服务', 'error');
+            addPullLog('error', '网络错误: ' + error.message);
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '拉取';

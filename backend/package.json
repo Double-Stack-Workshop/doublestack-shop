@@ -1,6 +1,6 @@
 {
   "name": "double-stack-backend",
-  "version": "1.0.0",
+  "version": "2.0.4",
   "description": "双栈商店后端 API 服务",
   "main": "main.py",
   "scripts": {

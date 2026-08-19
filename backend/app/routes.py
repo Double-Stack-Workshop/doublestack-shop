@@ -1,5 +1,7 @@
 import asyncio
+import json
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from .schemas import AddRepoRequest
 from .terminal import terminal_manager
@@ -59,6 +61,25 @@ from .database import (
 from .logger import log_service
 
 router = APIRouter(prefix="/api")
+
+
+def _sse_pack(event: dict) -> str:
+    """把事件 dict 打包成 SSE 文本帧。"""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _sse_stream(gen):
+    """把 yield dict 的生成器包成 SSE 文本流。"""
+    for event in gen:
+        yield _sse_pack(event)
+
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -242,17 +263,21 @@ class DeployRequest(BaseModel):
 
 @router.post("/deploy")
 async def deploy_application(request: DeployRequest):
-    result = deploy_yml(request.repo_name, request.file_name)
-    if result:
-        return result
-    raise HTTPException(status_code=404, detail="仓库或文件不存在")
+    """流式部署，返回 SSE 事件流。"""
+    return StreamingResponse(
+        _sse_stream(deploy_yml(request.repo_name, request.file_name)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 @router.post("/repos/{repo_name}/deploy/{file_path:path}")
 async def deploy_yml_endpoint(repo_name: str, file_path: str):
-    result = deploy_yml(repo_name, file_path)
-    if result:
-        return result
-    raise HTTPException(status_code=404, detail="仓库或文件不存在")
+    """流式部署，返回 SSE 事件流。"""
+    return StreamingResponse(
+        _sse_stream(deploy_yml(repo_name, file_path)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 @router.get("/containers/count")
 async def get_containers_count():
@@ -471,8 +496,12 @@ class PullImageRequest(BaseModel):
 
 @router.post("/images/pull")
 async def pull_image_endpoint(request: PullImageRequest):
-    result = pull_image(request.image_name)
-    return result
+    """流式拉取镜像，返回 SSE 事件流。"""
+    return StreamingResponse(
+        _sse_stream(pull_image(request.image_name)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 @router.delete("/images/{image_id}")
 async def delete_image_endpoint(image_id: str):
