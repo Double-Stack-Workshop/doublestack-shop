@@ -42,7 +42,8 @@ from .services import (
     get_host_system_info,
     get_current_repo,
     set_current_repo,
-    init_default_repos
+    init_default_repos,
+    load_recommend_config
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -580,6 +581,13 @@ async def set_current_repo_route(request: CurrentRepoRequest):
     set_current_repo(request.repo_name)
     log_service.info(f"当前系统仓库已设置为: {request.repo_name}", 'system')
     return {"success": True, "message": f"当前系统仓库已设置为: {request.repo_name}"}
+
+# 容器推荐配置路由
+@router.get("/recommend-config")
+async def get_recommend_config_route():
+    """获取容器推荐配置（从 data/recommend.json 读取）"""
+    config = load_recommend_config()
+    return {"success": True, "data": config}
 
 # 全局域名/IP 设置相关路由
 @router.get("/global-domain")

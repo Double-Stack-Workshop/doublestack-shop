@@ -74,7 +74,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.4
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.5
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -102,6 +102,7 @@ doublestack-shop/
 │   │   ├── logger.py      # 日志服务
 │   │   ├── schemas.py     # 数据模型
 │   │   └── terminal.py    # 终端服务
+│   ├── data/              # 数据配置文件
 │   ├── requirements.txt   # Python 依赖
 │   └── package.json       # 前端依赖配置
 └── frontend/
@@ -135,6 +136,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.0.5 | 2026-08-20 | 仓库策略更新；仓库管理新增「未同步」状态与筛选；修复仓库UI问题；设置页面新增 GitHub 项目地址；|
 | v2.0.4 | 2026-08-19 | 容器部署日志改为实时推送，新增时间戳与进度条；部署超时改为空闲超时，解决慢网环境下误判失败；|
 | v2.0.3 | 2026-07-06 | 优化代理配置逻辑；优化默认仓库初始化，服务启动不再阻塞；优化仓库拉取可靠性；优化UI界面； |
 | v2.0.2 | 2026-06-28 | 修复备份文件时间戳时区问题（统一使用UTC+8）；新增默认仓库配置（飞牛容器仓库、绿联新系统容器仓库、绿联旧系统容器仓库、极空间容器仓库）；修复多仓库文件列表重复问题；新增全局域名/IP配置功能（设置界面配置，容器名称可点击跳转）；新增仪表盘宿主机系统信息展示（CPU使用率、内存使用、磁盘空间、系统版本、网络信息）；新增仪表盘 Docker 环境信息展示（Docker/Docker Compose 版本）；修复多个界面样式和API错误问题； |

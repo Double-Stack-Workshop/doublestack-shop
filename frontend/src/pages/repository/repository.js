@@ -178,10 +178,7 @@ async function loadRepos() {
                         <h3>${repo.name}${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
                         <p>${repo.url}</p>
                     </div>
-                    <div class="repo-status ${repo.status}">
-                        <span class="status-dot"></span>
-                        <span>${getStatusText(repo.status)}</span>
-                    </div>
+                    ${getRepoStatusBadgeHTML(repo.status)}
                 </div>
                 <div class="repo-meta">
                     <div class="meta-item">
@@ -270,9 +267,28 @@ function getStatusText(status) {
     const statusMap = {
         'active': '已同步',
         'syncing': '同步中',
+        'pending': '未同步',
         'error': '同步失败'
     };
     return statusMap[status] || status;
+}
+
+// 状态徽章统一 HTML 结构（内层，不含外层 div）——所有地方共用同一份模板
+function getRepoStatusInnerHTML(status, text) {
+    const displayText = text || getStatusText(status);
+    return `<span class="status-dot"></span><span>${displayText}</span>`;
+}
+
+// 完整的状态徽章 HTML（含外层 div），用于 renderRepos 这种一次性字符串渲染
+function getRepoStatusBadgeHTML(status) {
+    return `<div class="repo-status ${status}">${getRepoStatusInnerHTML(status)}</div>`;
+}
+
+// 安全切换仓库状态 class：先清掉所有 4 种状态类，再加新的，避免双 class 叠加导致 CSS 覆盖
+function setRepoStatusClass(statusElement, newStatus, text) {
+    statusElement.classList.remove('active', 'syncing', 'pending', 'error');
+    statusElement.classList.add(newStatus);
+    statusElement.innerHTML = getRepoStatusInnerHTML(newStatus, text);
 }
 
 async function syncRepo(repoName, btn) {
@@ -281,9 +297,7 @@ async function syncRepo(repoName, btn) {
     const card = btn.closest('.repo-card');
     const statusElement = card.querySelector('.repo-status');
     
-    statusElement.classList.remove('active', 'error');
-    statusElement.classList.add('syncing');
-    statusElement.innerHTML = '<span class="status-dot"></span><span>同步中</span>';
+    setRepoStatusClass(statusElement, 'syncing');
     
     btn.classList.add('disabled');
     btn.innerHTML = '<i class="fas fa-refresh fa-spin"></i><span>同步中</span>';
@@ -296,9 +310,7 @@ async function syncRepo(repoName, btn) {
         const result = await response.json();
         
         if (response.ok && result.success) {
-            statusElement.classList.remove('syncing');
-            statusElement.classList.add('active');
-            statusElement.innerHTML = '<span class="status-dot"></span><span>已同步</span>';
+            setRepoStatusClass(statusElement, 'active');
             
             btn.classList.remove('disabled');
             btn.innerHTML = '<i class="fas fa-refresh"></i><span>同步</span>';
@@ -309,9 +321,7 @@ async function syncRepo(repoName, btn) {
             metaItems[0].innerHTML = `<i class="fas fa-file-code"></i><span>${result.data.yml_count} 个 YML 文件</span>`;
             metaItems[1].innerHTML = `<i class="fas fa-sync-alt"></i><span>上次同步: 刚刚</span>`;
         } else {
-            statusElement.classList.remove('syncing');
-            statusElement.classList.add('error');
-            statusElement.innerHTML = '<span class="status-dot"></span><span>同步失败</span>';
+            setRepoStatusClass(statusElement, 'error');
             
             btn.classList.remove('disabled');
             btn.innerHTML = '<i class="fas fa-refresh"></i><span>重试</span>';
@@ -319,9 +329,7 @@ async function syncRepo(repoName, btn) {
             showMessage(result.message || '同步失败', 'error');
         }
     } catch (error) {
-        statusElement.classList.remove('syncing');
-        statusElement.classList.add('error');
-        statusElement.innerHTML = '<span class="status-dot"></span><span>同步失败</span>';
+        setRepoStatusClass(statusElement, 'error');
         
         btn.classList.remove('disabled');
         btn.innerHTML = '<i class="fas fa-refresh"></i><span>重试</span>';
@@ -499,15 +507,26 @@ style.textContent = `
     
     .empty-state {
         grid-column: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         text-align: center;
         padding: 60px 20px;
         color: #64748b;
     }
     
     .empty-state i {
-        font-size: 48px;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #e2e8f0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
         margin-bottom: 16px;
-        color: #cbd5e1;
+        color: #94a3b8;
     }
     
     .view-modal {

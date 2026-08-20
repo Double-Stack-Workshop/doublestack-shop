@@ -1,50 +1,5 @@
 const API_BASE_URL = '/api';
 
-const RECOMMEND_CONFIG = {
-    'qbittorrent': {
-        title: 'qBittorrent',
-        subtitle: '轻量级 BitTorrent 客户端',
-        description: '功能强大的开源 BitTorrent 客户端，支持远程管理、RSS订阅、Web UI 等功能。',
-        tags: ['下载工具', 'BT'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-qbittorrent-bu-shu-jiao-cheng'
-    },
-    'transmission': {
-        title: 'Transmission',
-        subtitle: '快速轻量级 BT 客户端',
-        description: '开源的 BitTorrent 客户端，以简洁高效著称，支持 Web 界面远程管理。',
-        tags: ['下载工具', 'BT'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-transmission-bu-shu-jiao-cheng'
-    },
-    'emby': {
-        title: 'Emby',
-        subtitle: '个人媒体服务器',
-        description: '强大的媒体服务器，支持自动刮削元数据、多设备播放、实时转码、直播电视等功能。',
-        tags: ['媒体', '影音'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-emby-bu-shu-jiao-cheng'
-    },
-    'moviepilot': {
-        title: 'MoviePilot',
-        subtitle: '智能媒体库管理工具',
-        description: 'NAS 媒体库自动化管理工具，支持自动订阅、刮削、整理、通知等功能。',
-        tags: ['媒体', '自动化'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-moviepilot-bu-shu-jiao-cheng'
-    },
-    'navidrome': {
-        title: 'Navidrome',
-        subtitle: '现代音乐流媒体服务器',
-        description: '开源的音乐流媒体服务器，支持 Subsonic API，可在线播放和管理个人音乐库。',
-        tags: ['音乐', '流媒体'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-navidrome-bu-shu-jiao-cheng'
-    },
-    'openlist': {
-        title: 'OpenList',
-        subtitle: '网盘文件列表程序',
-        description: '支持多种网盘的文件列表程序，可统一管理阿里云盘、百度网盘、天翼云盘等。',
-        tags: ['网盘', '文件管理'],
-        tutorial: 'https://blog.yutumay.cn:16666/archives/docker-rong-qi-openlist-bu-shu-jiao-cheng'
-    }
-};
-
 function goToDeploy(ymlFileName) {
     window.location.href = `/src/pages/deploy/deploy.html?search=${encodeURIComponent(ymlFileName)}`;
 }
@@ -94,10 +49,20 @@ async function loadRecommendations() {
     const grid = document.getElementById('recommendGrid');
     
     try {
-        const [currentRepoResponse, reposResponse] = await Promise.all([
+        const [currentRepoResponse, reposResponse, recommendCfgResponse] = await Promise.all([
             fetch(`${API_BASE_URL}/current-repo`),
-            fetch(`${API_BASE_URL}/repos`)
+            fetch(`${API_BASE_URL}/repos`),
+            fetch(`${API_BASE_URL}/recommend-config`)
         ]);
+        
+        // 从后端加载推荐配置（读取自 data/recommend.json）
+        let RECOMMEND_CONFIG = {};
+        if (recommendCfgResponse.ok) {
+            const cfgData = await recommendCfgResponse.json();
+            if (cfgData && cfgData.success && cfgData.data) {
+                RECOMMEND_CONFIG = cfgData.data;
+            }
+        }
         
         let currentRepoName = '';
         if (currentRepoResponse.ok) {
@@ -116,7 +81,7 @@ async function loadRecommendations() {
             grid.innerHTML = `
                 <div class="empty-state">
                     <i class="fab fa-docker"></i>
-                    <p>暂无仓库，请先添加仓库</p>
+                    <p>暂无仓库，请先前往仓库管理添加仓库</p>
                 </div>
             `;
             return;

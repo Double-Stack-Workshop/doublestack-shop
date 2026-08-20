@@ -6,6 +6,7 @@ import time
 import threading
 import queue
 import datetime
+import json
 from pathlib import Path
 from typing import List, Dict, Optional, Generator
 from .schemas import YmlFile, RepoInfo
@@ -454,12 +455,39 @@ def _stream_command(cmd: list, env: dict, timeout: int, stage: str, label: str, 
 REPOS_DIR = Path("./repos")
 REPOS_DIR.mkdir(exist_ok=True)
 
+DATA_DIR = Path("./data")
+DATA_DIR.mkdir(exist_ok=True)
+REPOS_JSON_PATH = DATA_DIR / "repos.json"
+
+# 默认仓库配置（若 JSON 文件不存在则写入）
+DEFAULT_REPOS_JSON = [
+    {
+        "name": "飞牛容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "fnOS"
+    },
+    {
+        "name": "绿联新系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "UgreenNew"
+    },
+    {
+        "name": "绿联旧系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "Ugreen（Abandoned）"
+    },
+    {
+        "name": "极空间容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "ZSpace"
+    }
+]
+
 from .database import (
-    get_all_repos_from_db,
-    add_repo_to_db,
-    update_repo_in_db,
-    delete_repo_from_db,
-    get_repo_by_name_from_db,
     get_proxy_config as db_get_proxy_config,
     set_proxy_config as db_set_proxy_config,
     get_images_cache,
@@ -468,46 +496,191 @@ from .database import (
     set_setting
 )
 
-# 初始化：从数据库加载仓库信息
+# JSON 读写仓库配置
+def load_repos_config() -> List[Dict]:
+    """从 repos.json 读取仓库配置（仅 name/repo_url/branch/local_path 4 字段）"""
+    if not REPOS_JSON_PATH.exists():
+        REPOS_JSON_PATH.write_text(
+            json.dumps(DEFAULT_REPOS_JSON, ensure_ascii=False, indent=4),
+            encoding="utf-8"
+        )
+        return DEFAULT_REPOS_JSON
+    try:
+        content = REPOS_JSON_PATH.read_text(encoding="utf-8")
+        data = json.loads(content)
+        if not isinstance(data, list):
+            return DEFAULT_REPOS_JSON
+        return data
+    except Exception as e:
+        print(f"读取 repos.json 失败，使用默认配置: {e}")
+        return DEFAULT_REPOS_JSON
+
+def save_repos_config(repos_list: List[Dict]) -> bool:
+    """将仓库配置列表写入 repos.json（列表项只保留 4 字段）"""
+    try:
+        clean_list = []
+        for r in repos_list:
+            clean_list.append({
+                "name": r.get("name", ""),
+                "repo_url": r.get("repo_url", ""),
+                "branch": r.get("branch", "main"),
+                "local_path": r.get("local_path", "")
+            })
+        REPOS_JSON_PATH.write_text(
+            json.dumps(clean_list, ensure_ascii=False, indent=4),
+            encoding="utf-8"
+        )
+        return True
+    except Exception as e:
+        print(f"写入 repos.json 失败: {e}")
+        return False
+
+# 容器推荐配置 JSON
+RECOMMEND_JSON_PATH = DATA_DIR / "recommend.json"
+DEFAULT_RECOMMEND_CONFIG = {
+    "_tutorial_base_url": "https://blog.doublestack.top/archives/",
+    "qbittorrent": {
+        "title": "qBittorrent",
+        "subtitle": "轻量级 BitTorrent 客户端",
+        "description": "功能强大的开源 BitTorrent 客户端，支持远程管理、RSS订阅、Web UI 等功能。",
+        "tags": ["下载工具", "BT"],
+        "tutorial": "docker-rong-qi-qbittorrent-bu-shu-jiao-cheng"
+    },
+    "transmission": {
+        "title": "Transmission",
+        "subtitle": "快速轻量级 BT 客户端",
+        "description": "开源的 BitTorrent 客户端，以简洁高效著称，支持 Web 界面远程管理。",
+        "tags": ["下载工具", "BT"],
+        "tutorial": "docker-rong-qi-transmission-bu-shu-jiao-cheng"
+    },
+    "emby": {
+        "title": "Emby",
+        "subtitle": "个人媒体服务器",
+        "description": "强大的媒体服务器，支持自动刮削元数据、多设备播放、实时转码、直播电视等功能。",
+        "tags": ["媒体", "影音"],
+        "tutorial": "docker-rong-qi-emby-bu-shu-jiao-cheng"
+    },
+    "moviepilot": {
+        "title": "MoviePilot",
+        "subtitle": "智能媒体库管理工具",
+        "description": "NAS 媒体库自动化管理工具，支持自动订阅、刮削、整理、通知等功能。",
+        "tags": ["媒体", "自动化"],
+        "tutorial": "docker-rong-qi-moviepilot-bu-shu-jiao-cheng"
+    },
+    "navidrome": {
+        "title": "Navidrome",
+        "subtitle": "现代音乐流媒体服务器",
+        "description": "开源的音乐流媒体服务器，支持 Subsonic API，可在线播放和管理个人音乐库。",
+        "tags": ["音乐", "流媒体"],
+        "tutorial": "docker-rong-qi-navidrome-bu-shu-jiao-cheng"
+    },
+    "openlist": {
+        "title": "OpenList",
+        "subtitle": "网盘文件列表程序",
+        "description": "支持多种网盘的文件列表程序，可统一管理阿里云盘、百度网盘、天翼云盘等。",
+        "tags": ["网盘", "文件管理"],
+        "tutorial": "docker-rong-qi-openlist-bu-shu-jiao-cheng"
+    }
+}
+
+def _resolve_recommend_tutorials(raw: Dict) -> Dict:
+    """将配置里的短路径 tutorial 与 _tutorial_base_url 拼接，并移除公用配置字段"""
+    if not isinstance(raw, dict):
+        return raw
+    data = dict(raw)
+    base_url = data.pop("_tutorial_base_url", "") or ""
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, dict) and "tutorial" in value and isinstance(value["tutorial"], str):
+            tutorial = value["tutorial"]
+            if base_url and tutorial and not tutorial.startswith("http"):
+                # 处理 base_url 末尾 / 与 tutorial 开头 / 的重复
+                if base_url.endswith("/") and tutorial.startswith("/"):
+                    tutorial = tutorial.lstrip("/")
+                value = {**value, "tutorial": base_url + tutorial}
+        result[key] = value
+    return result
+
+def load_recommend_config() -> Dict:
+    """从 recommend.json 读取容器推荐配置，文件不存在或损坏时用默认配置并写回。
+    返回前会根据 _tutorial_base_url 将短路径 tutorial 拼接为完整 URL。"""
+    if not RECOMMEND_JSON_PATH.exists():
+        try:
+            RECOMMEND_JSON_PATH.write_text(
+                json.dumps(DEFAULT_RECOMMEND_CONFIG, ensure_ascii=False, indent=4),
+                encoding="utf-8"
+            )
+        except Exception as e:
+            print(f"写入 recommend.json 失败: {e}")
+        return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
+    try:
+        content = RECOMMEND_JSON_PATH.read_text(encoding="utf-8")
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
+        return _resolve_recommend_tutorials(data)
+    except Exception as e:
+        print(f"读取 recommend.json 失败，使用默认配置: {e}")
+        return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
+
+# 初始化：从 JSON 加载仓库信息（4 字段），yml_files 等动态字段在内存构建
 repos_db: List[RepoInfo] = []
 _repos_loaded = False
 
-def _load_repos_from_db():
+def _load_repos_from_json():
     global repos_db, _repos_loaded
     if _repos_loaded:
         return
-    
+
     try:
-        db_repos = get_all_repos_from_db()
-        for repo in db_repos:
+        json_repos = load_repos_config()
+        for repo in json_repos:
+            name = repo.get("name", "")
+            repo_url = repo.get("repo_url", "")
+            branch = repo.get("branch", "main")
+            local_path = repo.get("local_path", "")
+            actual_repo_dir_name = get_repo_name_from_url(repo_url)
+            repo_dir = REPOS_DIR / actual_repo_dir_name
+
+            # 动态扫描 yml 文件（如果本地已 clone 完成）
             yml_files = []
-            if repo.get('yml_files'):
-                for f in repo['yml_files']:
-                    yml_files.append(YmlFile(
-                        name=f['name'],
-                        path=f['path'],
-                        content=f.get('content', '')
-                    ))
-            
+            last_sync = "未同步"
+            status = "active"
+            if repo_dir.exists() and (repo_dir / ".git").exists():
+                try:
+                    yml_files = scan_yml_files(repo_dir, local_path)
+                except Exception:
+                    yml_files = []
+                # 取 git 目录修改时间作为 last_sync 近似值
+                try:
+                    import datetime as _dt
+                    mtime = (repo_dir / ".git").stat().st_mtime
+                    dt = _dt.datetime.fromtimestamp(mtime, _dt.timezone(_dt.timedelta(hours=8)))
+                    last_sync = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    last_sync = "已同步"
+            else:
+                status = "pending"
+
             repo_info = RepoInfo(
-                name=repo['name'],
-                url=repo['url'],
-                branch=repo['branch'],
-                local_path=repo.get('local_path', ''),
+                name=name,
+                url=repo_url,
+                branch=branch,
+                local_path=local_path,
                 yml_files=yml_files,
-                last_sync=repo.get('last_sync'),
-                status=repo.get('status', 'active'),
-                repo_dir_name=repo.get('repo_dir_name', repo['name'])
+                last_sync=last_sync,
+                status=status,
+                repo_dir_name=actual_repo_dir_name
             )
             repos_db.append(repo_info)
         _repos_loaded = True
     except Exception as e:
-        print(f"从数据库加载仓库信息失败: {e}")
+        print(f"从 JSON 加载仓库信息失败: {e}")
 
 # 延迟加载仓库
 def _ensure_repos_loaded():
     if not _repos_loaded:
-        _load_repos_from_db()
+        _load_repos_from_json()
 
 # 初始化代理配置
 proxy_config: Dict = db_get_proxy_config()
@@ -673,45 +846,23 @@ def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, max_retries:
             "status": "error"
         }
 
-DEFAULT_REPOS = [
-    {
-        "name": "飞牛容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "fnOS"
-    },
-    {
-        "name": "绿联新系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "UgreenNew"
-    },
-    {
-        "name": "绿联旧系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "Ugreen（Abandoned）"
-    },
-    {
-        "name": "极空间容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "ZSpace"
-    }
-]
-
 def init_default_repos():
-    repos = get_all_repos()
-    repo_names = [repo["name"] for repo in repos]
-    for repo_config in DEFAULT_REPOS:
-        if repo_config["name"] not in repo_names:
-            add_repo(
-                repo_url=repo_config["repo_url"],
-                branch=repo_config["branch"],
-                local_path=repo_config["local_path"],
-                name=repo_config["name"]
-            )
-            time.sleep(1)
+    """仅当 repos.json 为空时写入默认 4 个仓库配置（不执行 clone）"""
+    existing = load_repos_config()
+    if existing and len(existing) > 0:
+        # JSON 已有内容，不做处理；但缺项时补齐（比如之前有用户手动清空某个仓库）
+        need_save = False
+        existing_names = {r.get("name") for r in existing}
+        for default in DEFAULT_REPOS_JSON:
+            if default["name"] not in existing_names:
+                existing.append(default)
+                need_save = True
+        if need_save:
+            save_repos_config(existing)
+        return
+
+    # JSON 为空时写入默认配置
+    save_repos_config(DEFAULT_REPOS_JSON)
 
 def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
     yml_files = []
@@ -797,11 +948,18 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
     )
     repos_db.append(repo_info)
     
-    # 保存到数据库
+    # 保存 4 字段到 JSON
     try:
-        add_repo_to_db(repo_name, repo_url, branch, local_path, actual_repo_dir_name, yml_files, "刚刚", "active")
+        current_json = load_repos_config()
+        current_json.append({
+            "name": repo_name,
+            "repo_url": repo_url,
+            "branch": branch,
+            "local_path": local_path
+        })
+        save_repos_config(current_json)
     except Exception as e:
-        print(f"保存仓库到数据库失败: {e}")
+        print(f"保存仓库到 repos.json 失败: {e}")
     
     log_service.success(f"仓库添加成功: {repo_name} (发现 {len(yml_files)} 个 YML 文件)", 'system')
     
@@ -831,11 +989,7 @@ def sync_repo(repo_name: str) -> Dict:
                 repo.last_sync = "刚刚"
                 repos_db[i] = repo
                 
-                # 更新数据库
-                try:
-                    update_repo_in_db(repo_name, yml_files=repo.yml_files, last_sync="刚刚", status="active")
-                except Exception as e:
-                    print(f"更新仓库数据库失败: {e}")
+                # 注：yml_files/last_sync/status 为动态字段，不写入 JSON；4 字段不变无需写入
                 
                 log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个 YML 文件)", 'system')
                 
@@ -923,11 +1077,7 @@ def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
                         with open(file_path, 'w', encoding='utf-8') as f:
                             f.write(content)
                         repo.yml_files[i].content = content
-                        # 更新数据库
-                        try:
-                            update_repo_in_db(repo_name, yml_files=repo.yml_files)
-                        except Exception as e:
-                            print(f"更新仓库数据库失败: {e}")
+                        # 注：yml_files 是动态内存缓存，不写入 JSON/DB
                         return True
                     except Exception as e:
                         print(f"保存文件失败: {e}")
@@ -939,11 +1089,13 @@ def delete_repo(repo_name: str) -> bool:
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
             repos_db.pop(i)
-            # 从数据库删除
+            # 从 JSON 删除
             try:
-                delete_repo_from_db(repo_name)
+                current_json = load_repos_config()
+                current_json = [r for r in current_json if r.get("name") != repo_name]
+                save_repos_config(current_json)
             except Exception as e:
-                print(f"从数据库删除仓库失败: {e}")
+                print(f"从 repos.json 删除仓库失败: {e}")
             log_service.warning(f"仓库已删除: {repo_name}", 'system')
             return True
     log_service.warning(f"删除仓库失败: {repo_name} - 仓库不存在", 'system')

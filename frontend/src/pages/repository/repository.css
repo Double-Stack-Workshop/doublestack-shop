@@ -473,17 +473,24 @@ body {
     font-weight: 500;
 }
 
-.repo-status.active {
+/* 使用 div. 前缀提高选择器特异性，防止 Font Awesome 或其他框架的通用 .active/.syncing/.pending/.error 样式覆盖 */
+/* 顺序按严重程度排列：越靠后优先级越高（双 class 叠加时），同特异性后写者胜 */
+div.repo-status.active {
     background: rgba(16, 185, 129, 0.1);
     color: #059669;
 }
 
-.repo-status.syncing {
+div.repo-status.pending {
+    background: rgba(156, 163, 175, 0.15);
+    color: #6b7280;
+}
+
+div.repo-status.syncing {
     background: rgba(245, 158, 11, 0.1);
     color: #d97706;
 }
 
-.repo-status.error {
+div.repo-status.error {
     background: rgba(239, 68, 68, 0.1);
     color: #dc2626;
 }
@@ -494,16 +501,20 @@ body {
     border-radius: 50%;
 }
 
-.repo-status.active .status-dot {
+div.repo-status.active .status-dot {
     background: #10b981;
 }
 
-.repo-status.syncing .status-dot {
+div.repo-status.pending .status-dot {
+    background: #9ca3af;
+}
+
+div.repo-status.syncing .status-dot {
     background: #f59e0b;
     animation: pulse 1.5s infinite;
 }
 
-.repo-status.error .status-dot {
+div.repo-status.error .status-dot {
     background: #ef4444;
 }
 

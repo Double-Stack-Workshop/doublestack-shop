@@ -405,6 +405,10 @@ body {
 
 .version-actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .check-update-btn {
@@ -420,6 +424,7 @@ body {
     font-weight: 500;
     cursor: pointer;
     transition: all 0.3s ease;
+    text-decoration: none;
 }
 
 .check-update-btn:hover {
@@ -435,6 +440,34 @@ body {
 
 .check-update-btn i.fa-spin {
     animation: spin 1s linear infinite;
+}
+
+.github-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #24292e 0%, #0d1117 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.github-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(36, 41, 46, 0.4);
+    color: white;
+    text-decoration: none;
+}
+
+.github-btn i {
+    font-size: 16px;
 }
 
 @keyframes spin {
