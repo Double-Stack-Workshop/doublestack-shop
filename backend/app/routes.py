@@ -24,6 +24,8 @@ from .services import (
     restart_container,
     remove_container,
     get_container_logs,
+    list_docker_networks,
+    create_docker_network,
     get_latest_dockerhub_version,
     get_all_images,
     delete_image,
@@ -40,10 +42,14 @@ from .services import (
     get_backup_by_id,
     get_docker_info,
     get_host_system_info,
+    stream_host_metrics,
     get_current_repo,
     set_current_repo,
     init_default_repos,
-    load_recommend_config
+    load_recommend_config,
+    detect_docker_compose,
+    generate_compose_upgrade_script,
+    resolve_host_scripts_dir,
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -93,6 +99,10 @@ class RegisterRequest(BaseModel):
 
 class UpdatePasswordRequest(BaseModel):
     password: str
+
+class CreateNetworkRequest(BaseModel):
+    name: str
+    driver: str = "bridge"
 
 @router.post("/login")
 async def login(request: LoginRequest):
@@ -346,6 +356,21 @@ async def get_container_logs_endpoint(container_id: str, tail: int = 100):
     logs = get_container_logs(container_id, tail)
     return {"logs": logs}
 
+@router.get("/networks")
+async def list_networks_route():
+    log_service.info("获取 Docker 网络列表", 'system')
+    return {"success": True, "data": list_docker_networks()}
+
+@router.post("/networks")
+async def create_network_route(request: CreateNetworkRequest):
+    log_service.info(f"创建 Docker 网络: {request.name} (driver={request.driver})", 'system')
+    result = create_docker_network(request.name, request.driver)
+    if result.get("success"):
+        log_service.success(f"Docker 网络创建成功: {request.name}", 'system')
+    else:
+        log_service.error(f"Docker 网络创建失败: {request.name} - {result.get('message', '')}", 'system')
+    return {"success": result.get("success", False), **result}
+
 @router.get("/system/version")
 async def get_system_version():
     log_service.info("获取系统版本信息", 'system')
@@ -362,6 +387,21 @@ async def get_host_info_route():
     log_service.info("获取宿主机系统信息", 'system')
     host_info = get_host_system_info()
     return {"success": True, "data": host_info}
+
+
+@router.get("/system/host-metrics/stream")
+def stream_host_metrics_route():
+    """SSE 实时推送 CPU + 内存指标。
+    每秒推送一条 {"type":"metrics", ...}，客户端断开时自动结束。
+    磁盘/OS/网卡等不变信息仍由 GET /api/system/host-info 一次性返回。
+    """
+    log_service.info("建立宿主机实时指标SSE连接", 'system')
+    return StreamingResponse(
+        _sse_stream(stream_host_metrics(cpu_interval_sec=1.0, max_updates=0)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
 
 @router.get("/system/check-update")
 async def check_for_updates():
@@ -388,6 +428,49 @@ async def check_for_updates():
         "current_version": VERSION,
         "latest_version": latest_version,
         "update_available": is_update_available
+    }
+
+@router.get("/system/check-compose-upgrade")
+async def check_compose_upgrade_route():
+    """检测 Docker Compose v1/v2 状态，若仅 v1 或未安装则生成 v2 升级脚本。
+    行为参考 /system/check-update：检测 → 按需生成脚本 → 返回状态。
+    """
+    log_service.info("检查 Docker Compose 升级状态", 'system')
+    compose_info = detect_docker_compose()
+
+    script_generated = False
+    script_path = None
+    script_error = None
+
+    if compose_info.get("needs_upgrade"):
+        log_service.info(
+            f"Docker Compose 需要升级 (status={compose_info.get('status')})，正在生成升级脚本",
+            'system'
+        )
+        try:
+            script_path = generate_compose_upgrade_script()
+            script_generated = True
+            log_service.success(f"Docker Compose 升级脚本已生成: {script_path}", 'system')
+        except Exception as e:
+            script_error = str(e)
+            log_service.error(f"Docker Compose 升级脚本生成失败: {script_error}", 'system')
+
+    # 无论是否生成了脚本，都反向推导宿主机脚本路径并给出用户可直接执行的命令
+    host_paths = resolve_host_scripts_dir("upgrade_docker_compose_to_v2.sh")
+
+    return {
+        "success": True,
+        "v1_version": compose_info.get("v1_version", ""),
+        "v2_version": compose_info.get("v2_version", ""),
+        "status": compose_info.get("status", "not_installed"),
+        "needs_upgrade": compose_info.get("needs_upgrade", False),
+        "upgrade_script_generated": script_generated,
+        "upgrade_script_path": script_path,
+        "upgrade_script_error": script_error,
+        # ↓↓ 宿主机路径推导结果 + 用户可直接粘贴执行的命令 ↓↓
+        "host": host_paths,
+        "run_command_one_liner": host_paths.get("command_one_liner"),
+        "run_command_cd_style": host_paths.get("command_cd_style"),
     }
 
 def generate_update_script(latest_version):

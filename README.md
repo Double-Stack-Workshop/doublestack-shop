@@ -74,7 +74,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.5
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.6
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -136,6 +136,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.0.6 | 2026-08-20 | 仪表盘逻辑及UI优化；Docker Compose 自动生成脚本，并提供运行指令；容器部署页面新增「网络管理」；Compose 部署新增 `name: doublestack-shop` 统一 Compose 项目名；容器日志获取修复并支持倒序显示；|
 | v2.0.5 | 2026-08-20 | 仓库策略更新；仓库管理新增「未同步」状态与筛选；修复仓库UI问题；设置页面新增 GitHub 项目地址；|
 | v2.0.4 | 2026-08-19 | 容器部署日志改为实时推送，新增时间戳与进度条；部署超时改为空闲超时，解决慢网环境下误判失败；|
 | v2.0.3 | 2026-07-06 | 优化代理配置逻辑；优化默认仓库初始化，服务启动不再阻塞；优化仓库拉取可靠性；优化UI界面； |

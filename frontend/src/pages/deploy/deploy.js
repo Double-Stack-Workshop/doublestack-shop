@@ -200,6 +200,8 @@ async function loadFileContent(repoName, fileName) {
         modeSection.style.display = 'none';
         paramsSection.style.display = 'none';
         editorSection.style.display = 'none';
+        const _ns1 = document.getElementById('networkSection');
+        if (_ns1) _ns1.style.display = 'none';
         outputSection.style.display = 'none';
         return;
     }
@@ -227,8 +229,18 @@ async function loadFileContent(repoName, fileName) {
         parseYmlAndShowParams(data.content);
         
         modeSection.style.display = 'block';
+        // 重置三个 section 的可见性：默认显示简易模式，其他隐藏
         paramsSection.style.display = 'block';
         editorSection.style.display = 'none';
+        const _networkSec = document.getElementById('networkSection');
+        if (_networkSec) _networkSec.style.display = 'none';
+        // 同步重置 tab 的 active 状态为 easy mode
+        const _eBtn = document.getElementById('easyModeBtn');
+        const _aBtn = document.getElementById('advancedModeBtn');
+        const _nBtn = document.getElementById('networkModeBtn');
+        if (_eBtn) _eBtn.classList.add('active');
+        if (_aBtn) _aBtn.classList.remove('active');
+        if (_nBtn) _nBtn.classList.remove('active');
         outputSection.style.display = 'block';
         
         addLog('info', `已加载文件: ${fileName}`);
@@ -239,6 +251,8 @@ async function loadFileContent(repoName, fileName) {
         editor.style.height = '150px';
         clearParamsTable();
         modeSection.style.display = 'none';
+        const _ns2 = document.getElementById('networkSection');
+        if (_ns2) _ns2.style.display = 'none';
         outputSection.style.display = 'none';
     }
 }
@@ -835,22 +849,153 @@ function setupEventListeners() {
     
     const easyModeBtn = document.getElementById('easyModeBtn');
     const advancedModeBtn = document.getElementById('advancedModeBtn');
+    const networkModeBtn = document.getElementById('networkModeBtn');
     const paramsSection = document.getElementById('paramsSection');
     const editorSection = document.getElementById('editorSection');
+    const networkSection = document.getElementById('networkSection');
     
-    easyModeBtn.addEventListener('click', function() {
-        easyModeBtn.classList.add('active');
-        advancedModeBtn.classList.remove('active');
-        paramsSection.style.display = 'block';
-        editorSection.style.display = 'none';
-        parseYmlAndShowParams(editor.value);
-    });
+    function _setMode(mode) {
+        // 先把所有 tab 的 active 状态清空，所有 section 隐藏
+        if (easyModeBtn)     easyModeBtn.classList.remove('active');
+        if (advancedModeBtn) advancedModeBtn.classList.remove('active');
+        if (networkModeBtn)  networkModeBtn.classList.remove('active');
+        if (paramsSection)   paramsSection.style.display = 'none';
+        if (editorSection)   editorSection.style.display = 'none';
+        if (networkSection)  networkSection.style.display = 'none';
+
+        if (mode === 'easy') {
+            if (easyModeBtn) easyModeBtn.classList.add('active');
+            if (paramsSection) paramsSection.style.display = 'block';
+            try { parseYmlAndShowParams(editor ? editor.value : ''); } catch (e) {}
+        } else if (mode === 'advanced') {
+            if (advancedModeBtn) advancedModeBtn.classList.add('active');
+            if (editorSection) editorSection.style.display = 'block';
+            try { if (editor) adjustEditorHeight(editor); } catch (e) {}
+        } else if (mode === 'network') {
+            if (networkModeBtn) networkModeBtn.classList.add('active');
+            if (networkSection) networkSection.style.display = 'block';
+            // 切到网络管理时自动加载已有网络列表
+            try { loadNetworks(); } catch (e) { console.error('loadNetworks failed:', e); }
+        }
+    }
     
-    advancedModeBtn.addEventListener('click', function() {
-        advancedModeBtn.classList.add('active');
-        easyModeBtn.classList.remove('active');
-        paramsSection.style.display = 'none';
-        editorSection.style.display = 'block';
-        adjustEditorHeight(editor);
-    });
+    easyModeBtn && easyModeBtn.addEventListener('click', function() { _setMode('easy'); });
+    advancedModeBtn && advancedModeBtn.addEventListener('click', function() { _setMode('advanced'); });
+    if (networkModeBtn) {
+        networkModeBtn.addEventListener('click', function() { _setMode('network'); });
+    } else {
+        console.warn('[deploy] networkModeBtn 元素未找到，网络管理 Tab 未绑定事件');
+    }
+
+    // 网络管理：创建网络按钮
+    const createNetworkBtn = document.getElementById('createNetworkBtn');
+    const refreshNetworksBtn = document.getElementById('refreshNetworksBtn');
+    if (createNetworkBtn) createNetworkBtn.addEventListener('click', createNetwork);
+    if (refreshNetworksBtn) refreshNetworksBtn.addEventListener('click', loadNetworks);
+}
+
+// ============ Docker 网络管理相关函数 ============
+
+async function loadNetworks() {
+    const tbody = document.getElementById('networkTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载中...</td></tr>`;
+    try {
+        const response = await fetch(`${API_BASE_URL}/networks`);
+        const res = await response.json();
+        if (!response.ok || !res.success) {
+            tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载失败：${res.message || '未知错误'}</td></tr>`;
+            return;
+        }
+        const networks = Array.isArray(res.data) ? res.data : [];
+        if (networks.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">暂无网络</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = networks.map(function(net) {
+            const driver = (net.driver || '').toLowerCase();
+            return `
+                <tr>
+                    <td><code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-size:12px;">${escapeHtml(net.name || '')}</code></td>
+                    <td><span class="driver-tag ${driver}">${escapeHtml(net.driver || '')}</span></td>
+                    <td>${escapeHtml(net.scope || '')}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('加载网络列表失败:', error);
+        tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载失败：${escapeHtml(error.message || '网络异常')}</td></tr>`;
+    }
+}
+
+async function createNetwork() {
+    const nameInput = document.getElementById('networkName');
+    const driverSelect = document.getElementById('networkDriver');
+    const createBtn = document.getElementById('createNetworkBtn');
+    const msgEl = document.getElementById('networkMessage');
+    if (!nameInput || !driverSelect || !createBtn || !msgEl) return;
+
+    const name = nameInput.value.trim();
+    const driver = driverSelect.value || 'bridge';
+
+    if (!name) {
+        showNetworkMessage('error', '请输入网络名称');
+        nameInput.focus();
+        return;
+    }
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name)) {
+        showNetworkMessage('error', '名称不合法：以字母/数字开头，仅支持字母数字下划线中划线点号，最长128字符');
+        nameInput.focus();
+        return;
+    }
+
+    createBtn.disabled = true;
+    const originalBtnHTML = createBtn.innerHTML;
+    createBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> 创建中...`;
+    msgEl.style.display = 'none';
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/networks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, driver: driver })
+        });
+        const res = await response.json();
+        if (res.success) {
+            showNetworkMessage('success', res.message || '创建成功');
+            nameInput.value = '';
+            // 刷新列表
+            await loadNetworks();
+        } else {
+            showNetworkMessage('error', res.message || '创建失败');
+        }
+    } catch (error) {
+        console.error('创建网络失败:', error);
+        showNetworkMessage('error', '创建失败：' + (error.message || '网络异常'));
+    } finally {
+        createBtn.disabled = false;
+        createBtn.innerHTML = originalBtnHTML;
+    }
+}
+
+function showNetworkMessage(type, text) {
+    const msgEl = document.getElementById('networkMessage');
+    if (!msgEl) return;
+    msgEl.className = 'network-message ' + (type === 'success' ? 'success' : 'error');
+    msgEl.textContent = text || '';
+    msgEl.style.display = 'block';
+    // 5秒后自动隐藏成功提示
+    if (type === 'success') {
+        setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
+    }
+}
+
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }

@@ -1,5 +1,9 @@
 const API_BASE_URL = '/api';
 
+// 宿主机实时指标的 SSE 句柄（全局，保证同一时间只有一条连接）
+let _hostMetricsSource = null;
+let _hostMetricsReconnectTimer = null;
+
 document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
     checkLogin();
@@ -11,10 +15,113 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadDeploymentHistory();
     loadConnectivity();
     loadDockerInfo();
-    loadHostInfo();
-    
+    loadHostInfo(); // 内部成功后会启动实时 SSE
+
+    // 页面可见性：切到其他 Tab 时断开 SSE，避免空耗宿主机 1 秒一次的采样
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            stopHostMetricsStream(true);
+        } else {
+            // 回到该页时只有 DOM 已经渲染过 host-info 才重连（防止初始化前误连）
+            if (document.getElementById('stat-cpu-value')) {
+                startHostMetricsStream();
+            }
+        }
+    });
+
+    // 窗口关闭时显式断开，避免服务端长时间保留连接
+    window.addEventListener('beforeunload', function () {
+        stopHostMetricsStream(false);
+    });
+
     setInterval(loadContainerCount, 10000);
 });
+
+
+function stopHostMetricsStream(autoReconnect) {
+    if (_hostMetricsReconnectTimer) {
+        clearTimeout(_hostMetricsReconnectTimer);
+        _hostMetricsReconnectTimer = null;
+    }
+    if (_hostMetricsSource) {
+        try {
+            _hostMetricsSource.onerror = null;
+            _hostMetricsSource.onmessage = null;
+            _hostMetricsSource.onopen = null;
+            _hostMetricsSource.close();
+        } catch (e) { /* noop */ }
+        _hostMetricsSource = null;
+    }
+    if (autoReconnect) {
+        // 调用方会自己在合适时重新 start，所以这里什么都不做
+    }
+}
+
+
+function startHostMetricsStream() {
+    // 先关旧的，保证不会重复连接
+    stopHostMetricsStream(false);
+
+    const cpuEl       = document.getElementById('stat-cpu-value');
+    const cpuBarEl    = document.getElementById('stat-cpu-progress');
+    const memPctEl    = document.getElementById('stat-mem-percent');
+    const memBarEl    = document.getElementById('stat-mem-progress');
+    const memUsedEl   = document.getElementById('stat-mem-used-total');
+    // 如果首次渲染还没完成（卡片 DOM 尚未插入），跳过 SSE 启动
+    if (!cpuEl || !memPctEl || !memBarEl || !memUsedEl) {
+        return;
+    }
+
+    try {
+        const url = `${API_BASE_URL}/system/host-metrics/stream`;
+        const source = new EventSource(url, { withCredentials: true });
+        _hostMetricsSource = source;
+
+        source.onmessage = function (ev) {
+            let payload;
+            try {
+                payload = JSON.parse(ev.data);
+            } catch (e) {
+                return;
+            }
+            if (!payload || payload.type !== 'metrics') {
+                return;
+            }
+            if (payload.cpu_usage) {
+                const n = _parsePctNumber(payload.cpu_usage);
+                cpuEl.textContent = payload.cpu_usage;
+                if (cpuBarEl) {
+                    cpuBarEl.style.width = n + '%';
+                    _applyWarnClass(cpuBarEl, n);
+                }
+            }
+            if (payload.memory_used && payload.memory_total) {
+                memUsedEl.textContent = `${payload.memory_used} / ${payload.memory_total}`;
+            }
+            if (payload.memory_usage) {
+                const n = _parsePctNumber(payload.memory_usage);
+                memPctEl.textContent = payload.memory_usage;
+                memBarEl.style.width = n + '%';
+                _applyWarnClass(memBarEl, n);
+            }
+        };
+
+        source.onerror = function () {
+            // 异常关闭：先清理资源，退避 5 秒再重连
+            stopHostMetricsStream(false);
+            if (!_hostMetricsReconnectTimer) {
+                _hostMetricsReconnectTimer = setTimeout(function () {
+                    _hostMetricsReconnectTimer = null;
+                    if (document.visibilityState !== 'hidden') {
+                        startHostMetricsStream();
+                    }
+                }, 5000);
+            }
+        };
+    } catch (e) {
+        // 浏览器不支持 EventSource 等异常：忽略，继续用静态一次性数据
+    }
+}
 
 async function loadSidebar() {
     const response = await fetch('/src/components/sidebar/sidebar.html');
@@ -309,7 +416,11 @@ async function loadHostInfo() {
             const data = await response.json();
             if (data.success && data.data) {
                 container.innerHTML = renderHostInfo(data.data);
+                // 一次性加载完成后，启动 SSE 实时刷新 CPU/内存两个卡片
+                startHostMetricsStream();
             } else {
+                // 加载失败就关闭任何可能残留的 SSE
+                stopHostMetricsStream(false);
                 container.innerHTML = `
                     <div class="host-info-card error">
                         <div class="host-info-icon">
@@ -323,6 +434,7 @@ async function loadHostInfo() {
                 `;
             }
         } else {
+            stopHostMetricsStream(false);
             container.innerHTML = `
                 <div class="host-info-card error">
                     <div class="host-info-icon">
@@ -336,6 +448,7 @@ async function loadHostInfo() {
             `;
         }
     } catch (error) {
+        stopHostMetricsStream(false);
         container.innerHTML = `
             <div class="host-info-card error">
                 <div class="host-info-icon">
@@ -350,49 +463,120 @@ async function loadHostInfo() {
     }
 }
 
+function _applyWarnClass(barEl, pctNum) {
+    if (!barEl) return;
+    if (pctNum >= 85) {
+        barEl.classList.add('warn-high');
+    } else {
+        barEl.classList.remove('warn-high');
+    }
+}
+
+function _parsePctNumber(pctStr) {
+    if (!pctStr) return 0;
+    const m = String(pctStr).match(/([0-9]+(?:\.[0-9]+)?)/);
+    if (!m) return 0;
+    let v = parseFloat(m[1]);
+    if (isNaN(v)) return 0;
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+    return v;
+}
+
 function renderHostInfo(info) {
-    const networkHtml = info.network_info && info.network_info.length > 0
-        ? info.network_info.map(iface => `
+    // 只渲染"默认出口网卡"卡片（1张），不展示 docker0 / br-xxx 等全部虚拟网桥。
+    // 筛选优先级：primary_interface 精确匹配 → is_default=true → 第一张有IP的网卡 → 空
+    let defaultIface = null;
+    const networks = (info && info.network_info) ? info.network_info : [];
+    if (networks.length > 0) {
+        const primary = (info && info.primary_interface) ? String(info.primary_interface).trim() : '';
+        if (primary) {
+            defaultIface = networks.find(function (n) {
+                return (n && n.name && String(n.name).trim() === primary)
+                    || (n && n.name_raw && String(n.name_raw).trim() === primary);
+            });
+        }
+        if (!defaultIface) {
+            defaultIface = networks.find(function (n) { return n && n.is_default === true; });
+        }
+        if (!defaultIface) {
+            defaultIface = networks.find(function (n) { return n && n.name && n.ip; });
+        }
+    }
+    const networkHtml = defaultIface ? `
             <div class="host-info-card">
                 <div class="host-info-icon bg-network">
                     <i class="fas fa-network-wired"></i>
                 </div>
                 <div class="host-info-content">
-                    <h4>${iface.name}</h4>
-                    <p>${iface.ip}</p>
+                    <div class="host-info-head">
+                        <h4>${defaultIface.name}</h4>
+                    </div>
+                    <p class="host-info-os-network-text">${defaultIface.ip || '—'}</p>
                 </div>
             </div>
-        `).join('')
-        : '';
+        ` : '';
+
+    const cpuPct = _parsePctNumber(info && info.cpu_usage);
+    const memPct = _parsePctNumber(info && info.memory_usage);
+    const diskPct = _parsePctNumber(info && info.disk_usage);
+    const cpuWarn  = cpuPct  >= 85 ? ' warn-high' : '';
+    const memWarn  = memPct  >= 85 ? ' warn-high' : '';
+    const diskWarn = diskPct >= 85 ? ' warn-high' : '';
     
     return `
-        <div class="host-info-card">
+        <div class="host-info-card" id="stat-card-cpu">
             <div class="host-info-icon bg-cpu">
-                <i class="fas fa-cpu"></i>
+                <i class="fas fa-microchip"></i>
             </div>
             <div class="host-info-content">
-                <h4>CPU 使用率</h4>
-                <p>${info.cpu_usage}</p>
+                <div class="host-info-head">
+                    <h4>CPU 使用率</h4>
+                    <span class="host-info-pct-value" id="stat-cpu-value">${info.cpu_usage}</span>
+                </div>
+                <div class="host-info-progress">
+                    <div class="host-info-progress-bar bg-cpu-bar${cpuWarn}" id="stat-cpu-progress" style="width:${cpuPct}%"></div>
+                </div>
+                <div class="host-info-foot">
+                    <span class="host-info-foot-label">实时</span>
+                    <span>All Cores</span>
+                </div>
             </div>
         </div>
-        <div class="host-info-card">
+        <div class="host-info-card" id="stat-card-memory">
             <div class="host-info-icon bg-memory">
                 <i class="fas fa-memory"></i>
             </div>
             <div class="host-info-content">
-                <h4>内存使用</h4>
-                <p>${info.memory_used} / ${info.memory_total}</p>
-                <span class="host-info-percent">${info.memory_usage}</span>
+                <div class="host-info-head">
+                    <h4>内存使用</h4>
+                    <span class="host-info-pct-value" id="stat-mem-percent">${info.memory_usage}</span>
+                </div>
+                <div class="host-info-progress">
+                    <div class="host-info-progress-bar bg-memory-bar${memWarn}" id="stat-mem-progress" style="width:${memPct}%"></div>
+                </div>
+                <div class="host-info-foot">
+                    <span class="host-info-foot-label">实时</span>
+                    <span id="stat-mem-used-total">${info.memory_used} / ${info.memory_total}</span>
+                </div>
             </div>
         </div>
-        <div class="host-info-card">
+        <div class="host-info-card" id="stat-card-disk">
             <div class="host-info-icon bg-disk">
                 <i class="fas fa-hard-drive"></i>
             </div>
             <div class="host-info-content">
-                <h4>磁盘空间</h4>
-                <p>${info.disk_used} / ${info.disk_total}</p>
-                <span class="host-info-percent">${info.disk_usage}</span>
+                <div class="host-info-head">
+                    <h4>磁盘空间</h4>
+                    <span class="host-info-pct-value" id="stat-disk-percent">${info.disk_usage}</span>
+                </div>
+                <div class="host-info-progress">
+                    <div class="host-info-progress-bar bg-disk-bar${diskWarn}" id="stat-disk-progress" style="width:${diskPct}%"></div>
+                </div>
+                <div class="host-info-foot">
+                    <span class="host-info-foot-label">根分区</span>
+                    <span id="stat-disk-used-total">${info.disk_used} / ${info.disk_total}</span>
+                </div>
             </div>
         </div>
         <div class="host-info-card">
@@ -400,8 +584,10 @@ function renderHostInfo(info) {
                 <i class="fas fa-server"></i>
             </div>
             <div class="host-info-content">
-                <h4>系统版本</h4>
-                <p>${info.os_version}</p>
+                <div class="host-info-head">
+                    <h4>系统版本</h4>
+                </div>
+                <p class="host-info-os-network-text">${info.os_version}</p>
             </div>
         </div>
         ${networkHtml}

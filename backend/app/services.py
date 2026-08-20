@@ -1139,6 +1139,8 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                     env["COMPOSE_PROGRESS_TYPE"] = "plain"
                     env["PROGRESS_NO_TRUNC"] = "1"
                     env["PYTHONUNBUFFERED"] = "1"
+                    # 统一所有部署的 compose 项目名，使多个 yml 合并到同一个 project 下管理
+                    env["COMPOSE_PROJECT_NAME"] = "doublestack-shop"
 
                     deployment_logs = []
                     deploy_started_at = time.time()
@@ -1801,79 +1803,204 @@ import requests
 import time
 
 def test_connectivity(url: str, timeout: int = 10) -> Dict:
-    """测试网络连通性"""
+    """测试网络连通性。
+    用户指定使用 curl 命令参数：
+        curl --connect-timeout 8 -s -o /dev/null <URL>
+    我们在此基础上追加 -w 拿到 HTTP 状态码和总耗时，便于前端展示 latency。
+    为保证结果等于「在宿主机终端手动执行」，通过 _run_on_host 穿透执行，
+    这样不会被容器内的代理/命名空间/路由干扰。
+    """
+    import shlex
+    # 用户给的 connect-timeout 固定为 8 秒，外层总超时宽松一点
+    connect_timeout_sec = 8
+    total_timeout = max(timeout, connect_timeout_sec + 3)
+
+    # -w：输出一行 "HTTP_CODE TIME_TOTAL_SECONDS"，例如 "200 0.089314"
+    safe_url = shlex.quote(url)
+    curl_cmd = (
+        f"curl --connect-timeout {connect_timeout_sec} -s -o /dev/null "
+        f"-w '%{{http_code}} %{{time_total}}' {safe_url}"
+    )
     try:
-        proxies = get_requests_proxies()
-        start_time = time.time()
-        response = requests.get(url, timeout=timeout, verify=True, proxies=proxies)
-        latency = int((time.time() - start_time) * 1000)
-        
-        if response.status_code == 200:
+        rc, stdout, stderr, source = _run_on_host(curl_cmd, timeout=total_timeout)
+        http_code = 0
+        time_total_s = 0.0
+        out = (stdout or "").strip().split()
+        if len(out) >= 1 and out[0].isdigit():
+            http_code = int(out[0])
+        if len(out) >= 2:
+            try:
+                time_total_s = float(out[1])
+            except (ValueError, TypeError):
+                time_total_s = 0.0
+
+        latency = int(round(time_total_s * 1000)) if time_total_s > 0 else 0
+
+        # curl exit 0 + 有 HTTP 响应 → 网络连通（含 401/403 这种鉴权失败，不算网络不通）
+        network_ok = (rc == 0 and http_code > 0)
+
+        if network_ok and http_code < 400:
             return {
                 "success": True,
                 "url": url,
                 "status": "reachable",
                 "latency": latency,
-                "status_code": response.status_code,
-                "message": "连接成功"
+                "status_code": http_code,
+                "message": "连接成功",
+                "_exec_source": source,
             }
-        else:
+        if network_ok and http_code >= 400:
+            # 401/403/404：HTTP层能返回，网络本身通（registry-1.docker.io/v2 默认401）
+            return {
+                "success": True,
+                "url": url,
+                "status": "reachable",
+                "latency": latency,
+                "status_code": http_code,
+                "message": "网络可达",
+                "_exec_source": source,
+            }
+        if rc == 28:
+            # curl: (28) 连接超时
+            return {
+                "success": False,
+                "url": url,
+                "status": "timeout",
+                "latency": connect_timeout_sec * 1000,
+                "status_code": 0,
+                "message": f"连接超时（curl exit 28）",
+                "_exec_source": source,
+                "_stderr": (stderr or "")[:500],
+            }
+        if rc == 60:
+            return {
+                "success": False,
+                "url": url,
+                "status": "ssl_error",
+                "latency": latency,
+                "status_code": 0,
+                "message": "SSL证书错误（curl exit 60）",
+                "_exec_source": source,
+                "_stderr": (stderr or "")[:500],
+            }
+        if rc == 6:
+            return {
+                "success": False,
+                "url": url,
+                "status": "connection_error",
+                "latency": 0,
+                "status_code": 0,
+                "message": "DNS 解析失败（curl exit 6）",
+                "_exec_source": source,
+                "_stderr": (stderr or "")[:500],
+            }
+        if rc == 7:
+            return {
+                "success": False,
+                "url": url,
+                "status": "connection_error",
+                "latency": 0,
+                "status_code": 0,
+                "message": "无法连接到主机（curl exit 7）",
+                "_exec_source": source,
+                "_stderr": (stderr or "")[:500],
+            }
+        return {
+            "success": False,
+            "url": url,
+            "status": "unreachable",
+            "latency": latency,
+            "status_code": http_code,
+            "message": f"连通性失败（curl exit {rc}, HTTP {http_code}）",
+            "_exec_source": source,
+            "_stderr": (stderr or "")[:500],
+        }
+    except Exception as e1:
+        # 极端场景：宿主机没装 curl → 用 Python requests 兜底测试容器网络
+        try:
+            proxies = get_requests_proxies()
+            start_time = time.time()
+            response = requests.get(url, timeout=timeout, verify=True, proxies=proxies)
+            latency = int((time.time() - start_time) * 1000)
+            if 200 <= response.status_code < 400:
+                return {
+                    "success": True,
+                    "url": url,
+                    "status": "reachable",
+                    "latency": latency,
+                    "status_code": response.status_code,
+                    "message": "连接成功（容器网络 requests 兜底）",
+                    "_exec_source": "requests-fallback",
+                }
             return {
                 "success": False,
                 "url": url,
                 "status": "unreachable",
                 "latency": latency,
                 "status_code": response.status_code,
-                "message": f"连接失败，HTTP状态码: {response.status_code}"
+                "message": f"连接失败，HTTP状态码: {response.status_code}",
+                "_exec_source": "requests-fallback",
             }
-    except requests.exceptions.Timeout:
-        return {
-            "success": False,
-            "url": url,
-            "status": "timeout",
-            "latency": timeout * 1000,
-            "message": "连接超时"
-        }
-    except requests.exceptions.SSLError:
-        return {
-            "success": False,
-            "url": url,
-            "status": "ssl_error",
-            "latency": 0,
-            "message": "SSL证书错误"
-        }
-    except requests.exceptions.ConnectionError:
-        return {
-            "success": False,
-            "url": url,
-            "status": "connection_error",
-            "latency": 0,
-            "message": "连接失败，无法建立连接"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "url": url,
-            "status": "error",
-            "latency": 0,
-            "message": f"测试异常: {str(e)}"
-        }
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "url": url,
+                "status": "timeout",
+                "latency": timeout * 1000,
+                "status_code": 0,
+                "message": "连接超时（requests 兜底）",
+                "_exec_source": "requests-fallback",
+            }
+        except requests.exceptions.SSLError:
+            return {
+                "success": False,
+                "url": url,
+                "status": "ssl_error",
+                "latency": 0,
+                "status_code": 0,
+                "message": "SSL证书错误（requests 兜底）",
+                "_exec_source": "requests-fallback",
+            }
+        except requests.exceptions.ConnectionError:
+            return {
+                "success": False,
+                "url": url,
+                "status": "connection_error",
+                "latency": 0,
+                "status_code": 0,
+                "message": "连接失败，无法建立连接（requests 兜底）",
+                "_exec_source": "requests-fallback",
+            }
+        except Exception as e2:
+            return {
+                "success": False,
+                "url": url,
+                "status": "error",
+                "latency": 0,
+                "status_code": 0,
+                "message": f"测试异常: {str(e1)} / fallback: {str(e2)}",
+                "_exec_source": "error",
+            }
+
 
 def test_all_connectivity() -> Dict:
-    """测试所有预设的网络连接"""
+    """测试所有预设的网络连接——严格对应用户在终端里手工执行的命令：
+        echo -n "GitHub: ";curl --connect-timeout 8 -s -o /dev/null https://github.com && echo "OK" || echo "FAIL"
+        echo -n "Docker Registry: ";curl --connect-timeout 8 -s -o /dev/null https://registry-1.docker.io/v2/ && echo "OK" || echo "FAIL"
+    """
     targets = [
-        {"name": "GitHub", "url": "https://github.com/"},
-        {"name": "Docker Hub", "url": "https://hub.docker.com/"}
+        {"name": "GitHub",           "url": "https://github.com"},
+        {"name": "Docker Registry",  "url": "https://registry-1.docker.io/v2/"},
     ]
-    
+
     results = []
     for target in targets:
         result = test_connectivity(target["url"])
         result["name"] = target["name"]
         results.append(result)
-    
+
     all_successful = all(r["success"] for r in results)
-    
+
     return {
         "success": all_successful,
         "results": results,
@@ -1930,28 +2057,809 @@ def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
     
     return {"success": True, "message": "代理配置已保存"}
 
+def detect_docker_compose() -> dict:
+    """分别检测 docker-compose(v1) 和 docker compose(v2)，返回版本与升级状态。
+
+    注意：所有检测均通过 _run_on_host 在「宿主机用户空间」执行，确保拿到的是
+    用户宿主机上真实安装的 Docker Compose 版本，而不是容器镜像里自带的 Debian 包版本。
+    """
+    v1_version = ""
+    v2_version = ""
+    v1_found = False
+    v2_found = False
+    detection_source = "none"
+
+    # 检测 v2: docker compose (空格分隔，Go 插件版本) — 先测 v2，因为是主流
+    try:
+        rc, stdout, stderr, src = _run_on_host("docker compose version", timeout=20)
+        detection_source = src
+        if rc == 0:
+            raw = (stdout or stderr or "").strip()
+            if raw and "not a docker command" not in raw.lower() and "unknown" not in raw.lower():
+                v2_version = raw
+                v2_found = True
+    except Exception:
+        pass
+
+    # 检测 v1: docker-compose (横杠分隔，Python 版本)
+    try:
+        rc, stdout, stderr, src = _run_on_host("docker-compose --version", timeout=15)
+        if not v2_found or detection_source == "none":
+            detection_source = src
+        if rc == 0:
+            raw = (stdout or stderr or "").strip()
+            if raw:
+                v1_version = raw
+                v1_found = True
+    except Exception:
+        pass
+
+    # 判断升级需求：只要没有 v2，就认为需要升级/安装
+    if v2_found:
+        status = "v2_installed"
+        needs_upgrade = False
+    elif v1_found:
+        status = "v1_only"
+        needs_upgrade = True
+    else:
+        status = "not_installed"
+        needs_upgrade = True
+
+    return {
+        "v1_version": v1_version,
+        "v2_version": v2_version,
+        "v1_found": v1_found,
+        "v2_found": v2_found,
+        "status": status,            # v2_installed / v1_only / not_installed
+        "needs_upgrade": needs_upgrade,
+        "detection_source": detection_source,  # 标识最终在哪层执行拿到的结果
+    }
+
+
+def generate_compose_upgrade_script() -> str:
+    """生成 Docker Compose v1→v2 升级脚本到 scripts 目录，返回脚本路径。
+    脚本设计在宿主机上用 bash 执行（通过 /host 挂载路径也可从容器内触发到宿主机）。
+    """
+    import os
+    # 与 generate_update_script 保持一致的目录
+    script_dir = "/app/scripts"
+    script_path = os.path.join(script_dir, "upgrade_docker_compose_to_v2.sh")
+    os.makedirs(script_dir, exist_ok=True)
+
+    script_content = r"""#!/bin/bash
+# Docker Compose v1 → v2 升级脚本
+# 适用系统：Ubuntu / Debian / CentOS / RHEL / Fedora (x86_64 / aarch64)
+#
+# - 若检测到 Python 版 docker-compose(v1)：卸载 pip/docker-compose 二进制，清理别名
+# - 若完全未安装：直接安装 docker-compose-plugin(v2)
+# - 升级完成后验证：docker compose version
+
+set -e
+
+echo "=============================================="
+echo "  Docker Compose v1  →  v2  升级脚本"
+echo "=============================================="
+echo ""
+
+# ========== 0. 权限检测 ==========
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[警告] 当前用户非 root，部分步骤可能需要 sudo。"
+    echo "       如需完全自动升级，请用: sudo bash $0"
+    echo ""
+fi
+
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    SUDO="sudo"
+fi
+
+# ========== 1. 系统检测 ==========
+echo "[1/5] 检测系统环境..."
+
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64|amd64)  ARCH_ALT="x86_64" ;;
+    aarch64|arm64) ARCH_ALT="aarch64" ;;
+    armv7l)        ARCH_ALT="armv7" ;;
+    *)
+        echo "不支持的架构: $ARCH"
+        exit 1
+        ;;
+esac
+echo "  架构: $ARCH ($ARCH_ALT)"
+
+PKG_MGR=""
+DISTRO=""
+if command -v apt-get >/dev/null 2>&1; then
+    PKG_MGR="apt"
+    DISTRO=$(. /etc/os-release 2>/dev/null && echo "$ID" || echo "debian")
+    echo "  发行版: Debian/Ubuntu 系 ($DISTRO)，包管理器: apt"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_MGR="dnf"
+    DISTRO=$(. /etc/os-release 2>/dev/null && echo "$ID" || echo "fedora")
+    echo "  发行版: RHEL/Fedora 系 ($DISTRO)，包管理器: dnf"
+elif command -v yum >/dev/null 2>&1; then
+    PKG_MGR="yum"
+    DISTRO=$(. /etc/os-release 2>/dev/null && echo "$ID" || echo "centos")
+    echo "  发行版: CentOS/RHEL 系 ($DISTRO)，包管理器: yum"
+else
+    PKG_MGR="manual"
+    echo "  未识别包管理器，将使用二进制直装方案"
+fi
+
+echo ""
+
+# ========== 2. 检测并卸载旧版 v1 ==========
+echo "[2/5] 检测并清理旧版 Docker Compose v1 (docker-compose)..."
+
+V1_UNINSTALLED=0
+
+# 2.1 pip 安装
+if command -v pip3 >/dev/null 2>&1; then
+    if pip3 show docker-compose >/dev/null 2>&1; then
+        echo "  → 发现 pip 安装的 docker-compose，正在卸载..."
+        $SUDO pip3 uninstall -y docker-compose || true
+        V1_UNINSTALLED=1
+    fi
+fi
+if command -v pip >/dev/null 2>&1; then
+    if pip show docker-compose >/dev/null 2>&1; then
+        echo "  → 发现 pip2 安装的 docker-compose，正在卸载..."
+        $SUDO pip uninstall -y docker-compose || true
+        V1_UNINSTALLED=1
+    fi
+fi
+
+# 2.2 /usr/local/bin/docker-compose 二进制
+if [ -f /usr/local/bin/docker-compose ]; then
+    echo "  → 发现 /usr/local/bin/docker-compose 二进制，正在删除..."
+    $SUDO rm -f /usr/local/bin/docker-compose
+    V1_UNINSTALLED=1
+fi
+if [ -f /usr/bin/docker-compose ]; then
+    echo "  → 发现 /usr/bin/docker-compose 二进制，正在删除..."
+    $SUDO rm -f /usr/bin/docker-compose
+    V1_UNINSTALLED=1
+fi
+
+# 2.3 ~/.docker/cli-plugins 下残留旧插件（v1插件极少，兜底）
+if [ -f ~/.docker/cli-plugins/docker-compose ]; then
+    echo "  → 清理用户级 cli-plugins 下的旧 compose 文件"
+    rm -f ~/.docker/cli-plugins/docker-compose || true
+fi
+
+[ $V1_UNINSTALLED -eq 1 ] && echo "  旧版 v1 已清理完成。" || echo "  未检测到 v1，跳过清理。"
+echo ""
+
+# ========== 3. 安装 v2 (docker-compose-plugin) ==========
+echo "[3/5] 安装 Docker Compose v2 (docker compose plugin)..."
+
+INSTALLED_V2=0
+
+# 3.1 apt 系
+if [ "$PKG_MGR" = "apt" ]; then
+    echo "  → 尝试用 apt 安装 docker-compose-plugin..."
+    set +e
+    $SUDO apt-get update -y -qq
+    $SUDO apt-get install -y -qq docker-compose-plugin
+    RC=$?
+    set -e
+    if [ $RC -eq 0 ]; then
+        INSTALLED_V2=1
+    else
+        echo "  apt 安装失败，回退到二进制直装..."
+    fi
+fi
+
+# 3.2 dnf / yum 系
+if [ $INSTALLED_V2 -eq 0 ] && { [ "$PKG_MGR" = "dnf" ] || [ "$PKG_MGR" = "yum" ]; }; then
+    echo "  → 尝试用 $PKG_MGR 安装 docker-compose-plugin..."
+    set +e
+    $SUDO $PKG_MGR install -y docker-compose-plugin
+    RC=$?
+    set -e
+    if [ $RC -eq 0 ]; then
+        INSTALLED_V2=1
+    else
+        echo "  $PKG_MGR 安装失败，回退到二进制直装..."
+    fi
+fi
+
+# 3.3 二进制直装兜底（手动 / GitHub Release）
+if [ $INSTALLED_V2 -eq 0 ]; then
+    echo "  → 下载官方二进制到 Docker CLI plugins 目录..."
+    PLUGIN_DIR="/usr/local/lib/docker/cli-plugins"
+    $SUDO mkdir -p "$PLUGIN_DIR"
+    BIN_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${ARCH_ALT}"
+    echo "    下载地址: $BIN_URL"
+    set +e
+    if command -v curl >/dev/null 2>&1; then
+        $SUDO curl -SL "$BIN_URL" -o "$PLUGIN_DIR/docker-compose"
+    elif command -v wget >/dev/null 2>&1; then
+        $SUDO wget -q -O "$PLUGIN_DIR/docker-compose" "$BIN_URL"
+    else
+        echo "  curl 和 wget 都不可用，请先安装 curl 或 wget，然后手动下载："
+        echo "    $BIN_URL"
+        echo "  放到: $PLUGIN_DIR/docker-compose 并 chmod +x"
+        exit 1
+    fi
+    RC=$?
+    set -e
+    if [ $RC -ne 0 ]; then
+        echo "  二进制下载失败，请检查网络或代理设置。"
+        exit 1
+    fi
+    $SUDO chmod +x "$PLUGIN_DIR/docker-compose"
+
+    # 兼容：在 /usr/local/bin 放一个 docker-compose 别名脚本，让老命令仍可用
+    if [ ! -e /usr/local/bin/docker-compose ]; then
+        echo "  → 创建兼容别名 /usr/local/bin/docker-compose → docker compose"
+        $SUDO tee /usr/local/bin/docker-compose >/dev/null <<'ALIAS_EOF'
+#!/bin/sh
+exec docker compose "$@"
+ALIAS_EOF
+        $SUDO chmod +x /usr/local/bin/docker-compose
+    fi
+
+    INSTALLED_V2=1
+fi
+
+echo "  v2 安装完成。"
+echo ""
+
+# ========== 4. 验证安装 ==========
+echo "[4/5] 验证安装结果..."
+
+if command -v docker >/dev/null 2>&1; then
+    echo ""
+    echo "  Docker Compose v2 版本:"
+    docker compose version
+    echo ""
+    if command -v docker-compose >/dev/null 2>&1; then
+        echo "  兼容命令 docker-compose 测试:"
+        docker-compose --version
+    fi
+else
+    echo "  [警告] 当前环境未检测到 docker 命令（可能在容器内执行），请在宿主机验证："
+    echo "    docker compose version"
+fi
+
+echo ""
+
+# ========== 5. 提示信息 ==========
+echo "[5/5] 升级完成"
+echo ""
+echo "=============================================="
+echo "  使用方式："
+echo "    旧命令 (v1): docker-compose up -d"
+echo "    新命令 (v2): docker compose up -d      ← 推荐"
+echo ""
+echo "  为兼容已有脚本，已保留 docker-compose 别名。"
+echo "=============================================="
+"""
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script_content)
+    os.chmod(script_path, 0o755)
+    return script_path
+
+
 def get_docker_info():
     docker_version = ""
-    docker_compose_version = ""
-    
+    compose_info = {}
+
+    # 优先读 Server 端真实版本（通过 docker.sock 直接问宿主机 dockerd）
+    # 因为容器内的 `docker --version` 只会显示容器镜像里自带的客户端版本，
+    # 与用户宿主机实际安装的 Docker Engine 可能差异很大（例如 Debian 包 26 vs 宿主机 28）
     try:
-        result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
+        server_fmt = (
+            "docker version --format "
+            "'Docker version {{.Server.Version}}, build {{.Server.GitCommit}}'"
+        )
+        result = subprocess.run(["sh", "-c", server_fmt], capture_output=True, text=True, timeout=15)
+        if result.returncode == 0 and result.stdout.strip():
             docker_version = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+
+    # Server 端拿不到，就退到 Client 端（但这通常是容器内打包的客户端版本，不准但比空好）
+    if not docker_version:
+        try:
+            client_fmt = (
+                "docker version --format "
+                "'Docker version {{.Client.Version}}, build {{.Client.GitCommit}}'"
+            )
+            result = subprocess.run(["sh", "-c", client_fmt], capture_output=True, text=True, timeout=15)
+            if result.returncode == 0 and result.stdout.strip():
+                docker_version = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+    # 最后兜底：旧的 --version
+    if not docker_version:
+        try:
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                docker_version = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+    if not docker_version:
         docker_version = "Docker 未安装或不可用"
-    
-    try:
-        result = subprocess.run(["docker-compose", "--version"], capture_output=True, text=True, timeout=10)
-        if result.returncode == 0:
-            docker_compose_version = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-        docker_compose_version = "Docker Compose 未安装或不可用"
-    
+
+    compose_info = detect_docker_compose()
+
+    # 若需要升级，自动生成脚本（参考 check-update 生成应用升级脚本的行为）
+    if compose_info.get("needs_upgrade"):
+        try:
+            script_path = generate_compose_upgrade_script()
+            compose_info["upgrade_script_generated"] = True
+            compose_info["upgrade_script_path"] = script_path
+            # 生成脚本后立即反向推导宿主机路径 + 可执行命令
+            host_resolved = resolve_host_scripts_dir("upgrade_docker_compose_to_v2.sh")
+            compose_info["host"] = host_resolved
+            compose_info["run_command_one_liner"] = host_resolved.get("command_one_liner")
+            compose_info["run_command_cd_style"] = host_resolved.get("command_cd_style")
+        except Exception as e:
+            compose_info["upgrade_script_generated"] = False
+            compose_info["upgrade_script_error"] = str(e)
+    else:
+        compose_info["upgrade_script_generated"] = False
+        # 即使不需要升级，也提供路径推导信息（方便将来其他脚本复用）
+        try:
+            host_resolved = resolve_host_scripts_dir("upgrade_docker_compose_to_v2.sh")
+            compose_info["host"] = host_resolved
+        except Exception:
+            pass
+
+    # 兼容旧字段，同时返回详细字段
+    docker_compose_version = compose_info.get("v2_version") or compose_info.get("v1_version") or "Docker Compose 未安装或不可用"
+
     return {
         "docker_version": docker_version,
-        "docker_compose_version": docker_compose_version
+        "docker_compose_version": docker_compose_version,  # 向后兼容字段
+        "compose": compose_info,                           # 新字段：v1/v2/status/needs_upgrade/脚本路径等
     }
+
+
+def get_current_container_id() -> str:
+    """获取当前运行进程所在的 Docker 容器 ID；非容器环境返回空字符串。
+    优先从 cgroup 提取（兼容 v1/v2），回退到 /etc/hostname 短 ID。
+    """
+    import os, re
+
+    cgroup_paths = ["/proc/self/cgroup", "/proc/1/cgroup"]
+    for cg in cgroup_paths:
+        try:
+            if not os.path.exists(cg):
+                continue
+            with open(cg, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            # cgroup v1: 1:cpu:/docker/<64位ID> 或 11:devices:/system.slice/docker-<ID>.scope
+            # cgroup v2: 0::/system.slice/docker-<ID>.scope 或 0::/docker/<ID>
+            m64 = re.search(r"[0-9a-f]{64}", content)
+            if m64:
+                return m64.group(0)
+            m12_scope = re.search(r"docker-([0-9a-f]{12})\.scope", content)
+            if m12_scope:
+                return m12_scope.group(1)
+        except Exception:
+            continue
+
+    # 回退：hostname 默认就是容器 ID 的前 12 位
+    hn = ""
+    try:
+        hn = os.uname()[1]
+    except Exception:
+        try:
+            with open("/etc/hostname", "r", encoding="utf-8", errors="ignore") as f:
+                hn = f.read().strip()
+        except Exception:
+            hn = ""
+    if hn and re.fullmatch(r"[0-9a-f]{12}", hn):
+        return hn
+    return ""
+
+
+def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v2.sh") -> dict:
+    """通过反向推导当前容器的挂载信息，得到脚本文件在**宿主机**上的绝对路径，
+    并给出可直接在宿主机 shell 中粘贴执行的命令（一行式 + cd 式）。
+
+    返回字段:
+      resolved: bool            — 是否成功通过容器挂载反向推导出真实宿主机路径
+      in_container: bool        — 当前进程是否运行在容器内
+      container_id: str         — 当前容器 ID（空表示未识别出容器环境）
+      scripts_dir_container: str — 脚本目录在容器内的路径 ("/app/scripts")
+      scripts_dir_host: str     — 脚本目录在宿主机上的绝对路径（推导结果或fallback相对路径）
+      script_file_host: str     — 脚本文件在宿主机上的绝对路径
+      command_one_liner: str    — 一行式直接执行，例：sudo bash /xxx/backend/scripts/xxx.sh
+      command_cd_style: str     — cd+执行两段式，例：cd /xxx/backend/scripts && sudo bash xxx.sh
+    """
+    import os
+    CONTAINER_SCRIPTS_DIR = "/app/scripts"
+    container_id = get_current_container_id()
+    in_container = bool(container_id) or os.path.exists(CONTAINER_SCRIPTS_DIR)
+
+    scripts_dir_host = None
+    resolved = False
+
+    if container_id:
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", container_id],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0:
+                import json
+                data = json.loads(result.stdout or "[]")
+                if isinstance(data, list) and data:
+                    mounts = data[0].get("Mounts") or []
+                    for m in mounts:
+                        dest = m.get("Destination") or ""
+                        src = m.get("Source") or ""
+                        if dest and dest.rstrip("/") == CONTAINER_SCRIPTS_DIR and src:
+                            # 注意：inspect 返回的 Source 是 docker daemon 视角的宿主机绝对路径
+                            scripts_dir_host = src
+                            resolved = True
+                            break
+                    # 兜底：如果 mount 中没精确匹配 /app/scripts，找包含 scripts/ 且带 Destination 的 bind mount
+                    if not scripts_dir_host:
+                        for m in mounts:
+                            dest = (m.get("Destination") or "").rstrip("/")
+                            src = m.get("Source") or ""
+                            if (
+                                dest.endswith("/scripts")
+                                and (dest == CONTAINER_SCRIPTS_DIR or dest.endswith("/app/scripts"))
+                                and src
+                            ):
+                                scripts_dir_host = src
+                                resolved = True
+                                break
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+
+    # Fallback：推导失败时给出相对路径提示（用户通常在项目根目录执行）
+    if not scripts_dir_host:
+        scripts_dir_host = "./backend/scripts"
+
+    # Windows 宿主机下 Source 可能是 /host_mnt/... 或者 linux 风格路径；保持原样即可
+    script_file_host = os.path.join(scripts_dir_host, script_filename).replace("\\", "/")
+
+    # 生成执行命令
+    SUDO = "sudo "  # 大多数 Linux 宿主机需要
+    command_one_liner = f"{SUDO}bash {script_file_host}"
+    command_cd_style = f"cd {scripts_dir_host} && {SUDO}bash {script_filename}"
+
+    return {
+        "resolved": resolved,
+        "in_container": in_container,
+        "container_id": container_id,
+        "scripts_dir_container": CONTAINER_SCRIPTS_DIR,
+        "scripts_dir_host": scripts_dir_host,
+        "script_file_host": script_file_host,
+        "command_one_liner": command_one_liner,
+        "command_cd_style": command_cd_style,
+    }
+
+
+def _parse_cpu_stat(text: str):
+    """解析 /proc/stat 的第一行 cpu 总览，返回 (total_jiffies, idle_jiffies)。
+    例：cpu  1234 2345 3456 45678 567 678 789 0 0 0
+                     usr nice sys  idle  iowq irq soft steal ...
+    """
+    if not text:
+        return None, None
+    for line in text.splitlines():
+        if line.startswith('cpu '):
+            parts = line.split()
+            if len(parts) < 5:
+                return None, None
+            try:
+                nums = [int(x) for x in parts[1:]]
+            except (ValueError, TypeError):
+                return None, None
+            # idle = parts[4] (idle) + parts[5] (iowait)
+            idle = nums[3] + (nums[4] if len(nums) > 4 else 0)
+            total = sum(nums)
+            return total, idle
+    return None, None
+
+
+def _read_host_text(path: str, max_bytes: int = 1024 * 1024) -> str:
+    """优先读 /host/<path>（宿主机真实文件），不存在再读容器内 /<path>。
+    用纯 Python open()，零 subprocess 开销。
+
+    典型场景：
+      /host/proc/stat       → 宿主机 CPU 累计 jiffies
+      /host/proc/meminfo    → 宿主机内存总量/可用量
+      /host/etc/os-release  → 宿主机发行版
+    """
+    import os
+    host_path = "/host" + path
+    for p in (host_path, path):
+        try:
+            if os.path.isfile(p):
+                with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read(max_bytes)
+                if content is not None:
+                    return content
+        except Exception:
+            continue
+    return ""
+
+
+def _measure_cpu_usage(interval_sec: float = 1.0):
+    """用 /proc/stat 两次采样差值计算真实瞬时 CPU 使用率。
+    优先读 /host/proc/stat（宿主机真实 CPU），纯 Python open()，无 subprocess。
+    """
+    import time
+    try:
+        text1 = _read_host_text("/proc/stat")
+        total1, idle1 = _parse_cpu_stat(text1)
+        if total1 is None:
+            return None
+
+        # 间隔（由调用方控制长短：同步首屏用 0.2s 快出值，SSE 实时推用 1s 更准）
+        time.sleep(interval_sec)
+
+        text2 = _read_host_text("/proc/stat")
+        total2, idle2 = _parse_cpu_stat(text2)
+        if total2 is None:
+            return None
+
+        delta_total = total2 - total1
+        delta_idle = idle2 - idle1
+        if delta_total <= 0:
+            return 0.0
+        usage = (delta_total - delta_idle) / delta_total * 100.0
+        if usage < 0:
+            usage = 0.0
+        if usage > 100:
+            usage = 100.0
+        return round(usage, 1)
+    except Exception:
+        return None
+
+
+def _measure_memory_usage():
+    """快速采集内存占用，优先读 /host/proc/meminfo（宿主机真实内存），
+    纯 Python 文件 I/O，无 subprocess。返回 dict 或 None。
+    """
+    try:
+        text = _read_host_text("/proc/meminfo")
+        if not text:
+            return None
+        mem_total = 0
+        mem_available = 0
+        for line in text.splitlines():
+            if line.startswith('MemTotal:'):
+                try:
+                    mem_total = int(line.split()[1]) // 1024
+                except (ValueError, IndexError):
+                    pass
+            elif line.startswith('MemAvailable:'):
+                try:
+                    mem_available = int(line.split()[1]) // 1024
+                except (ValueError, IndexError):
+                    pass
+        if mem_total <= 0:
+            return None
+        mem_used = mem_total - mem_available
+        usage = (mem_used / mem_total) * 100.0
+        return {
+            "memory_total": f"{mem_total} MB",
+            "memory_used": f"{mem_used} MB",
+            "memory_usage": f"{usage:.1f}%",
+            "_mem_total_mb": mem_total,
+            "_mem_avail_mb": mem_available,
+        }
+    except Exception:
+        return None
+
+
+def stream_host_metrics(cpu_interval_sec: float = 1.0, max_updates: int = 0):
+    """SSE 实时指标生成器：逐条 yield 事件 dict。
+    只推送会「实时变化」的指标（CPU + 内存），其他不常变信息（磁盘、OS版本、网卡、
+    网络信息等）仍由 GET /api/system/host-info 一次性返回，避免每秒做昂贵的网络穿透。
+
+    事件结构：{"type": "metrics", "cpu_usage": "12.3%", "memory_total/used/usage": "...", "ts": "ISO8601"}
+    最后会发 {"type": "done"}
+
+    max_updates == 0 表示不限条数（等客户端自己断开 SSE 连接）。
+    """
+    import time
+    sent = 0
+    try:
+        while True:
+            # CPU：两次采样差值（内置 1s 间隔）
+            cpu_pct = _measure_cpu_usage(interval_sec=cpu_interval_sec)
+
+            # 内存：/proc/meminfo 快读
+            mem = _measure_memory_usage()
+
+            payload = {
+                "type": "metrics",
+                "cpu_usage": f"{cpu_pct:.1f}%" if cpu_pct is not None else "无法获取",
+                "memory_total": mem["memory_total"] if mem else "无法获取",
+                "memory_used": mem["memory_used"] if mem else "无法获取",
+                "memory_usage": mem["memory_usage"] if mem else "无法获取",
+                "ts": _now_iso(),
+            }
+            yield payload
+            sent += 1
+
+            # 达到上限退出（用于调试）
+            if max_updates > 0 and sent >= max_updates:
+                yield {"type": "done", "success": True, "sent": sent}
+                return
+
+            # CPU 采样已经带 sleep(cpu_interval_sec) 了，这里再补一个 50ms 避免极端情况下紧循环
+            time.sleep(0.05)
+    except (GeneratorExit, Exception):
+        # 客户端断开 SSE 连接时 FastAPI 会关闭生成器，这里静默退出
+        return
+
+
+def _run_on_host(cmd_str: str, timeout: int = 20) -> tuple:
+    """尽量在「宿主机用户空间」执行给定 shell 命令（字符串形式，可带管道/管道重定向），
+    返回 (returncode, stdout, stderr, source)。
+
+    适用场景：docker compose version / docker-compose --version / which xxx 等
+    依赖「宿主机上实际安装的可执行文件 + PATH + 配置」的命令。
+
+    四层 fallback（穿透能力从强到弱）：
+      1. chroot /host sh -c '<cmd>'        — 直接把根切到宿主机，二进制/路径全是宿主机的
+      2. nsenter mount+pid netns            — 进入宿主机的 mount 和 pid 命名空间
+      3. docker run docker:cli              — 基于 docker.sock 用官方 docker-cli 镜像跑 docker 子命令
+      4. 容器内本地执行（兜底）             — 拿到的是容器内版本，但至少有返回值
+    """
+    import os
+
+    # 1. chroot /host
+    if os.path.isdir("/host") and os.path.isfile("/host/etc/os-release"):
+        try:
+            full = ["chroot", "/host", "sh", "-c", cmd_str]
+            r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0 and (r.stdout or r.stderr):
+                return (r.returncode, r.stdout or "", r.stderr or "", "chroot")
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 2. nsenter 进入宿主机 mount+pid+uts+ipc+net (除了 user/cgroup 全进去)
+    ns_prefix = "/host/proc/1/ns"
+    nsenter_args = ["nsenter"]
+    added = 0
+    for ns_kind in ("mnt", "pid", "uts", "ipc", "net"):
+        p = f"{ns_prefix}/{ns_kind}"
+        if os.path.exists(p):
+            nsenter_args.extend([f"--{ns_kind}=" + p])
+            added += 1
+    if added >= 2:
+        try:
+            full = nsenter_args + ["--", "sh", "-c", cmd_str]
+            r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0 and (r.stdout or r.stderr):
+                return (r.returncode, r.stdout or "", r.stderr or "", "nsenter")
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 3. 容器内本地执行（兜底）—— 注：不再 fallback 到 docker run docker:cli
+    #    拉取 174MB 镜像会严重拖慢 Dashboard 加载，且用户已挂载 /:/host，
+    #    chroot / nsenter 就能拿到宿主机真实信息。
+    try:
+        r = subprocess.run(["sh", "-c", cmd_str], capture_output=True, text=True, timeout=timeout)
+        return (r.returncode, r.stdout or "", r.stderr or "", "container-local")
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+        return (1, "", str(e), "container-local-failed")
+
+
+def _run_in_host_net(cmd: list, timeout: int = 10) -> tuple:
+    """尝试在「宿主机网络命名空间」执行给定命令（数组参数，不经过 shell）。
+    三层 fallback（从上到下，前一个失败就用下一个）：
+      1. nsenter --net=/host/proc/1/ns/net  (需要 /:/host 挂载且 privileged 权限)
+      2. chroot /host sh -c '<cmd>'          (需要宿主机存在对应二进制)
+      3. 直接在当前进程（容器）执行           (拿到容器内网卡，保底)
+
+    注意：不再用 docker run --network=host alpine 做 fallback，避免首次触发
+    alpine 镜像下载（几 MB ~ 几十 MB）导致 Dashboard 首屏加载卡住。
+    用户已挂载 /:/host，nsenter / chroot 就能拿到宿主机真实网络信息。
+
+    返回 (returncode, stdout, stderr, source)，source 用于标识最终用了哪层执行。
+    """
+    cmd_str = " ".join(cmd)
+    import os
+
+    # 1. nsenter（最优先：零开销、不需要额外镜像）
+    nsenter_netns = "/host/proc/1/ns/net"
+    if os.path.exists(nsenter_netns):
+        try:
+            full = ["nsenter", "--net=" + nsenter_netns, "--"] + list(cmd)
+            r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0 and r.stdout.strip():
+                return (r.returncode, r.stdout, r.stderr, "nsenter")
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 2. chroot /host（用 sh -c 包一层以便宿主机 PATH 解析）
+    if os.path.isdir("/host"):
+        try:
+            full = ["chroot", "/host", "sh", "-c", cmd_str]
+            r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+            if r.returncode == 0 and r.stdout.strip():
+                return (r.returncode, r.stdout, r.stderr, "chroot")
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 3. 容器内直接执行（兜底）
+    try:
+        r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
+        return (r.returncode, r.stdout or "", r.stderr or "", "container-local")
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+        return (1, "", str(e), "container-local-failed")
+
+
+def get_default_interface() -> str:
+    """获取「宿主机」默认外网出口网卡名。
+    用户明确要求：只通过以下命令筛选，其余解析逻辑去掉。
+        ip route get 8.8.8.8 | awk '/dev/ {print $5}'
+    在用户实际环境下直接输出：ens33-ovs
+
+    由于应用通常运行在 Docker 容器（独立 netns），本函数会按以下顺序
+    尝试在「宿主机网络命名空间」执行该管道命令，确保拿到的是宿主机真实网卡：
+      1. nsenter --net=/host/proc/1/ns/net   （最快、零镜像依赖）
+      2. chroot /host sh -c '<cmd>'           （切根到宿主机）
+      3. 容器内直接执行（兜底）
+
+    注意：不再用 docker run alpine 做 fallback，避免首次触发镜像下载卡住 UI。
+    用户已挂载 /:/host，nsenter / chroot 就够了。
+    """
+    import os
+    # 用户指定的固定管道命令（原样保留，不再 Python 侧解析）
+    shell_cmd = "ip route get 8.8.8.8 | awk '/dev/ {print $5}'"
+
+    # 1. nsenter 进入宿主机 netns
+    nsenter_netns = "/host/proc/1/ns/net"
+    if os.path.exists(nsenter_netns):
+        try:
+            r = subprocess.run(
+                ["nsenter", "--net=" + nsenter_netns, "--", "sh", "-c", shell_cmd],
+                capture_output=True, text=True, timeout=15
+            )
+            out = (r.stdout or "").strip()
+            if r.returncode == 0 and out:
+                return out
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 2. chroot /host
+    if os.path.isdir("/host"):
+        try:
+            r = subprocess.run(
+                ["chroot", "/host", "sh", "-c", shell_cmd],
+                capture_output=True, text=True, timeout=15
+            )
+            out = (r.stdout or "").strip()
+            if r.returncode == 0 and out:
+                return out
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+    # 3. 容器本地执行（兜底）
+    try:
+        r = subprocess.run(
+            ["sh", "-c", shell_cmd],
+            capture_output=True, text=True, timeout=10
+        )
+        out = (r.stdout or "").strip()
+        if r.returncode == 0 and out:
+            return out
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
+
+    return ""
+
 
 def get_host_system_info():
     info = {
@@ -1963,45 +2871,34 @@ def get_host_system_info():
         "disk_used": "0 GB",
         "disk_usage": "0%",
         "os_version": "未知",
+        "primary_interface": "",  # 默认路由出口网卡名（优先外网真实网卡）
         "network_info": []
     }
+
+    # 先取默认出口网卡，后续给 network_info 打 is_default 标记
+    default_iface = get_default_interface()
+    info["primary_interface"] = default_iface
     
+    # CPU 使用率：两次采样取差值
+    # 同步接口用 0.2s 快速返回首屏值；真正的秒级精确值由 SSE 持续推送（1s 间隔）
     try:
-        result = subprocess.run(["cat", "/proc/stat"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
-            for line in lines:
-                if line.startswith('cpu '):
-                    parts = line.split()
-                    total = sum(int(p) for p in parts[1:])
-                    idle = int(parts[4])
-                    usage = ((total - idle) / total) * 100
-                    info["cpu_usage"] = f"{usage:.1f}%"
-                    break
+        usage = _measure_cpu_usage(interval_sec=0.2)
+        if usage is not None:
+            info["cpu_usage"] = f"{usage:.1f}%"
+        else:
+            info["cpu_usage"] = "获取中..."
     except Exception:
-        try:
-            result = subprocess.run(["ps", "-aux"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                info["cpu_usage"] = "获取中..."
-        except Exception:
-            info["cpu_usage"] = "无法获取"
-    
+        info["cpu_usage"] = "无法获取"
+
+    # 内存：优先读 /host/proc/meminfo（已由 _measure_memory_usage 封装，纯 Python，零 subprocess）
     try:
-        result = subprocess.run(["cat", "/proc/meminfo"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            mem_total = 0
-            mem_available = 0
-            for line in result.stdout.strip().split('\n'):
-                if line.startswith('MemTotal:'):
-                    mem_total = int(line.split()[1]) // 1024
-                elif line.startswith('MemAvailable:'):
-                    mem_available = int(line.split()[1]) // 1024
-            if mem_total > 0:
-                mem_used = mem_total - mem_available
-                info["memory_total"] = f"{mem_total} MB"
-                info["memory_used"] = f"{mem_used} MB"
-                info["memory_usage"] = f"{(mem_used / mem_total * 100):.1f}%"
+        mem = _measure_memory_usage()
+        if mem:
+            info["memory_total"] = mem["memory_total"]
+            info["memory_used"]  = mem["memory_used"]
+            info["memory_usage"] = mem["memory_usage"]
     except Exception:
+        # fallback 到 free -m（极端情况下）
         try:
             result = subprocess.run(["free", "-m"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
@@ -2009,25 +2906,83 @@ def get_host_system_info():
                 for line in lines:
                     if line.startswith('Mem:'):
                         parts = line.split()
-                        info["memory_total"] = f"{parts[1]} MB"
-                        info["memory_used"] = f"{parts[2]} MB"
-                        info["memory_usage"] = f"{(int(parts[2]) / int(parts[1]) * 100):.1f}%"
+                        if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                            info["memory_total"] = f"{parts[1]} MB"
+                            info["memory_used"] = f"{parts[2]} MB"
+                            info["memory_usage"] = f"{(int(parts[2]) / int(parts[1]) * 100):.1f}%"
                         break
         except Exception:
             pass
     
+    # ── 磁盘空间：优先取宿主机真实分区容量 ────────────────────────────
+    # 1) 最快、最准：挂载了 /host 就直接 os.statvfs('/host')，拿的是宿主机根分区容量
+    #    （纯 Python，无 subprocess，不会触发 overlay 自身的偏差）
+    disk_ok = False
     try:
-        result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
-            if len(lines) >= 2:
-                parts = lines[1].split()
-                info["disk_total"] = parts[1]
-                info["disk_used"] = parts[2]
-                info["disk_usage"] = parts[4].replace('%', '') + '%'
+        import os
+        if os.path.isdir("/host"):
+            st = os.statvfs("/host")
+            block_size = st.f_frsize or st.f_bsize
+            total_bytes = st.f_blocks * block_size
+            free_bytes  = st.f_bfree  * block_size
+            avail_bytes = st.f_bavail * block_size
+            used_bytes  = total_bytes - avail_bytes
+            if total_bytes > 0:
+                def _hr(n):
+                    """格式化成和 df -h 一致的人类可读字符串。"""
+                    units = ["B", "K", "M", "G", "T", "P"]
+                    idx = 0
+                    v = float(n)
+                    while v >= 1024 and idx < len(units) - 1:
+                        v /= 1024
+                        idx += 1
+                    # df -h 保留一位小数或整数（<10 时带小数）
+                    if v < 10 and idx >= 2:
+                        return f"{v:.1f}{units[idx]}"
+                    return f"{v:.0f}{units[idx]}"
+                info["disk_total"] = _hr(total_bytes)
+                info["disk_used"]  = _hr(used_bytes)
+                pct_used = used_bytes / total_bytes * 100
+                info["disk_usage"] = f"{pct_used:.0f}%"
+                disk_ok = True
     except Exception:
+        disk_ok = False
+
+    # 2) /host 不可用时 fallback：穿透到宿主机跑 df -P /
+    if not disk_ok:
         try:
-            result = subprocess.run(["df", "-H", "/"], capture_output=True, text=True, timeout=5)
+            rc, stdout, stderr, _ = _run_on_host("df -P / 2>/dev/null", timeout=15)
+            if rc == 0 and stdout.strip():
+                lines = stdout.strip().splitlines()
+                if len(lines) >= 2:
+                    parts = lines[1].split()
+                    # df -P 单位是 1K-blocks
+                    total_k = int(parts[1])
+                    used_k  = int(parts[2])
+                    avail_k = int(parts[3])
+                    pct     = parts[4].replace('%', '')
+                    if total_k > 0:
+                        def _k2hr(k):
+                            units = ["K", "M", "G", "T", "P"]
+                            idx = 0
+                            v = float(k)
+                            while v >= 1024 and idx < len(units) - 1:
+                                v /= 1024
+                                idx += 1
+                            if v < 10 and idx >= 1:
+                                return f"{v:.1f}{units[idx]}"
+                            return f"{v:.0f}{units[idx]}"
+                        info["disk_total"] = _k2hr(total_k)
+                        info["disk_used"]  = _k2hr(used_k)
+                        info["disk_usage"] = pct + '%'
+                        disk_ok = True
+        except Exception:
+            disk_ok = False
+
+    # 3) 再兜底：原来的容器本地 df -h /（overlay，但至少有值）
+    if not disk_ok:
+        try:
+            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
                 if len(lines) >= 2:
@@ -2035,32 +2990,85 @@ def get_host_system_info():
                     info["disk_total"] = parts[1]
                     info["disk_used"] = parts[2]
                     info["disk_usage"] = parts[4].replace('%', '') + '%'
+                    disk_ok = True
         except Exception:
-            pass
+            try:
+                result = subprocess.run(["df", "-H", "/"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    if len(lines) >= 2:
+                        parts = lines[1].split()
+                        info["disk_total"] = parts[1]
+                        info["disk_used"] = parts[2]
+                        info["disk_usage"] = parts[4].replace('%', '') + '%'
+            except Exception:
+                pass
     
+    # ── 系统版本：优先取宿主机真实发行版 ─────────────────────────────
+    # 1) /host/etc/os-release 就是宿主机 /etc/os-release
+    os_ok = False
     try:
-        result = subprocess.run(["cat", "/etc/os-release"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            os_info = {}
-            for line in result.stdout.strip().split('\n'):
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    os_info[key] = value.strip('"')
-            info["os_version"] = os_info.get('PRETTY_NAME', os_info.get('NAME', '未知'))
+        host_os_release = "/host/etc/os-release"
+        if os.path.isfile(host_os_release):
+            with open(host_os_release, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            if content.strip():
+                os_info = {}
+                for line in content.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        os_info[key] = value.strip().strip('"')
+                pretty = os_info.get('PRETTY_NAME') or os_info.get('NAME') or ""
+                if pretty:
+                    info["os_version"] = pretty
+                    os_ok = True
     except Exception:
+        os_ok = False
+
+    # 2) fallback：穿透到宿主机执行 cat /etc/os-release
+    if not os_ok:
         try:
-            result = subprocess.run(["uname", "-a"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                info["os_version"] = result.stdout.strip()
+            rc, stdout, stderr, _ = _run_on_host("cat /etc/os-release 2>/dev/null", timeout=12)
+            if rc == 0 and stdout.strip():
+                os_info = {}
+                for line in stdout.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        os_info[key] = value.strip().strip('"')
+                pretty = os_info.get('PRETTY_NAME') or os_info.get('NAME') or ""
+                if pretty:
+                    info["os_version"] = pretty
+                    os_ok = True
         except Exception:
-            pass
+            os_ok = False
+
+    # 3) 再兜底：容器内 /etc/os-release + uname -a
+    if not os_ok:
+        try:
+            result = subprocess.run(["cat", "/etc/os-release"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                os_info = {}
+                for line in result.stdout.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        os_info[key] = value.strip('"')
+                info["os_version"] = os_info.get('PRETTY_NAME', os_info.get('NAME', '未知'))
+                os_ok = True
+        except Exception:
+            try:
+                result = subprocess.run(["uname", "-a"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    info["os_version"] = result.stdout.strip()
+            except Exception:
+                pass
     
     try:
-        result = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
+        rc, stdout, stderr, src = _run_in_host_net(["ip", "addr"], timeout=8)
+        _net_src = src
+        if rc == 0 and stdout.strip():
             interfaces = []
             current_iface = None
-            for line in result.stdout.strip().split('\n'):
+            for line in stdout.strip().split('\n'):
                 if line.startswith(' '):
                     if current_iface and 'inet ' in line:
                         ip = line.split('inet ')[1].split('/')[0]
@@ -2070,22 +3078,37 @@ def get_host_system_info():
                     if current_iface and current_iface.get("ip"):
                         interfaces.append(current_iface)
                     name = line.split(':')[1].strip()
-                    current_iface = {"name": name, "ip": ""}
+                    # 如果是容器veth格式，清理@后面部分（仅显示用）
+                    clean_name = name.split('@')[0] if '@' in name else name
+                    current_iface = {
+                        "name": clean_name,
+                        "name_raw": name,
+                        "ip": "",
+                        "is_default": bool(default_iface) and (clean_name == default_iface or name == default_iface)
+                    }
             if current_iface and current_iface.get("ip"):
                 interfaces.append(current_iface)
             info["network_info"] = interfaces
+            info["network_source"] = _net_src
     except Exception:
         try:
-            result = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
+            rc, stdout, stderr, src = _run_in_host_net(["ifconfig"], timeout=8)
+            _net_src = src
+            if rc == 0 and stdout.strip():
                 interfaces = []
                 current_iface = None
-                for line in result.stdout.strip().split('\n'):
+                for line in stdout.strip().split('\n'):
                     if line.strip() and not line.startswith(' '):
                         if current_iface and current_iface.get("ip"):
                             interfaces.append(current_iface)
                         name = line.split(':')[0].strip()
-                        current_iface = {"name": name, "ip": ""}
+                        clean_name = name.split('@')[0] if '@' in name else name
+                        current_iface = {
+                            "name": clean_name,
+                            "name_raw": name,
+                            "ip": "",
+                            "is_default": bool(default_iface) and (clean_name == default_iface or name == default_iface)
+                        }
                     elif current_iface and 'inet ' in line:
                         parts = line.split()
                         for i, part in enumerate(parts):
@@ -2097,8 +3120,11 @@ def get_host_system_info():
                 if current_iface and current_iface.get("ip"):
                     interfaces.append(current_iface)
                 info["network_info"] = interfaces
+                info["network_source"] = _net_src
         except Exception:
-            pass
+            info["network_source"] = "failed"
+    # 兜底：如果上面两个分支都没拿到 network_info，保持空数组
+    info.setdefault("network_source", "fallback_empty")
     
     return info
 
@@ -2124,7 +3150,24 @@ def get_latest_dockerhub_version(repo_name: str) -> Optional[str]:
         return None
 
 def get_container_logs(container_id: str, tail: int = 100) -> str:
+    def _reverse_lines(content: str) -> str:
+        """按行倒序，最新日志在最上方。保留末尾换行行为与原内容一致。"""
+        if not content:
+            return content
+        # 统一换行并分割；末尾为空串说明原内容以换行结尾，需要剔除用于正确还原
+        lines = content.replace("\r\n", "\n").split("\n")
+        ends_with_newline = lines and lines[-1] == ""
+        if ends_with_newline:
+            lines = lines[:-1]
+        lines.reverse()
+        result = "\n".join(lines)
+        if ends_with_newline:
+            result += "\n"
+        return result
+
     try:
+        # docker logs 会将容器日志输出到 stderr 而非 stdout（Docker 固有行为）
+        # 因此无论成功与否，都需要合并 stdout + stderr 两个流
         result = subprocess.run(
             ["docker", "logs", "--tail", str(tail), container_id],
             capture_output=True,
@@ -2132,15 +3175,104 @@ def get_container_logs(container_id: str, tail: int = 100) -> str:
             timeout=60
         )
         if result.returncode == 0:
-            return result.stdout
+            # 合并两个流：先 stdout 再 stderr，避免漏掉任何输出
+            combined_parts = []
+            if result.stdout:
+                combined_parts.append(result.stdout)
+            if result.stderr:
+                combined_parts.append(result.stderr)
+            if not combined_parts:
+                return "暂无日志"
+            return _reverse_lines("".join(combined_parts))
         else:
-            return result.stderr
+            # 失败时优先返回 stderr（错误信息通常在这里），没有则回退到 stdout
+            raw = result.stderr or result.stdout or f"命令执行失败 (exit code {result.returncode})"
+            return _reverse_lines(raw) if raw else raw
     except subprocess.TimeoutExpired:
         return "获取日志超时"
     except FileNotFoundError:
         return "Docker命令不可用"
     except Exception as e:
         return f"获取日志失败: {str(e)}"
+
+# ============ Docker 网络相关函数 ============
+
+def list_docker_networks() -> list:
+    """列出所有 Docker 网络，返回 [{name, driver, scope}]。"""
+    try:
+        result = subprocess.run(
+            ["docker", "network", "ls", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            return []
+        import json
+        networks = []
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                networks.append({
+                    "name": item.get("Name", ""),
+                    "driver": item.get("Driver", ""),
+                    "scope": item.get("Scope", ""),
+                })
+            except Exception:
+                continue
+        return networks
+    except Exception:
+        return []
+
+
+def create_docker_network(name: str, driver: str = "bridge") -> dict:
+    """创建 Docker 网络。返回 {success: bool, message: str, name: str, driver: str}。"""
+    if not name or not name.strip():
+        return {"success": False, "message": "网络名称不能为空"}
+    name = name.strip()
+    # 校验名称：允许字母、数字、下划线、中划线、点号，长度 1-128
+    import re
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$", name):
+        return {"success": False, "message": "网络名称不合法：以字母或数字开头，仅包含字母数字下划线中划线点号，最长128字符"}
+    if driver not in ("bridge", "host", "none", "overlay", "ipvlan", "macvlan"):
+        driver = "bridge"
+    try:
+        # 先检查是否已存在
+        check = subprocess.run(
+            ["docker", "network", "inspect", name],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if check.returncode == 0:
+            return {"success": False, "message": f"网络 {name} 已存在", "name": name, "driver": driver}
+
+        result = subprocess.run(
+            ["docker", "network", "create", "--driver", driver, name],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "message": f"网络 {name} 创建成功",
+                "name": name,
+                "driver": driver,
+                "id": (result.stdout or "").strip()
+            }
+        else:
+            err = (result.stderr or result.stdout or "未知错误").strip()
+            return {"success": False, "message": f"创建网络失败: {err}", "name": name, "driver": driver}
+    except FileNotFoundError:
+        return {"success": False, "message": "Docker命令不可用", "name": name, "driver": driver}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "创建网络超时", "name": name, "driver": driver}
+    except Exception as e:
+        return {"success": False, "message": f"创建网络失败: {str(e)}", "name": name, "driver": driver}
 
 # ============ 容器备份相关函数 ============
 

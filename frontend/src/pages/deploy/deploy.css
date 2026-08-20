@@ -18,7 +18,8 @@ body {
 .mode-section,
 .select-section,
 .params-section,
-.editor-section {
+.editor-section,
+.network-section {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
@@ -39,6 +40,7 @@ body {
 .mode-tabs {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
 .mode-tab {

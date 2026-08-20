@@ -61,6 +61,10 @@
                             <i class="fas fa-code"></i>
                             高级模式
                         </button>
+                        <button id="networkModeBtn" class="mode-tab">
+                            <i class="fas fa-network-wired"></i>
+                            网络管理
+                        </button>
                     </div>
                 </div>
 
@@ -104,6 +108,62 @@
                                 部署应用
                             </button>
                         </div>
+                    </div>
+                </div>
+
+                <div class="network-section" id="networkSection" style="display: none;">
+                    <div class="section-header">
+                        <h2>创建自定义网络</h2>
+                    </div>
+                    <div class="network-create-card">
+                        <div class="network-create-row">
+                            <div class="network-input-group">
+                                <label for="networkName">网络名称</label>
+                                <input type="text" id="networkName" class="form-input" placeholder="例如 my-bridge-net（字母数字开头，支持_-.）">
+                            </div>
+                            <div class="network-input-group" style="max-width: 220px;">
+                                <label for="networkDriver">驱动类型</label>
+                                <select id="networkDriver" class="form-select">
+                                    <option value="bridge" selected>bridge（最常用）</option>
+                                    <option value="host">host</option>
+                                    <option value="none">none</option>
+                                    <option value="overlay">overlay</option>
+                                    <option value="ipvlan">ipvlan</option>
+                                    <option value="macvlan">macvlan</option>
+                                </select>
+                            </div>
+                            <div class="network-input-group" style="max-width: 180px; align-self: flex-end;">
+                                <button id="createNetworkBtn" class="btn btn-primary" style="width: 100%;">
+                                    <i class="fas fa-plus-circle"></i>
+                                    创建网络
+                                </button>
+                            </div>
+                        </div>
+                        <div id="networkMessage" class="network-message" style="display: none;"></div>
+                    </div>
+
+                    <div class="section-header" style="margin-top: 24px;">
+                        <h2>已有网络</h2>
+                        <button id="refreshNetworksBtn" class="btn btn-secondary btn-sm">
+                            <i class="fas fa-sync-alt"></i>
+                            刷新
+                        </button>
+                    </div>
+                    <div class="network-list-container">
+                        <table class="network-table" id="networkTable" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50%;">网络名称</th>
+                                    <th style="width: 25%;">驱动</th>
+                                    <th style="width: 25%;">作用域</th>
+                                </tr>
+                            </thead>
+                            <tbody id="networkTableBody">
+                                <tr>
+                                    <td colspan="3" class="empty-cell">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -262,6 +322,171 @@
     .deploy-progress-panel { padding: 12px 12px; }
     .stage-header { font-size: 12px; }
     .stage-percent { font-size: 12px; }
+}
+
+.network-section {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.network-create-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 18px;
+}
+.network-create-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.network-input-group {
+    flex: 1 1 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.network-input-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+}
+.form-input {
+    padding: 10px 14px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+    width: 100%;
+    font-family: inherit;
+}
+.form-input:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+.form-select {
+    padding: 10px 14px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+    width: 100%;
+    font-family: inherit;
+}
+.form-select:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+.btn-info {
+    background: linear-gradient(135deg, #06b6d4 0%, #0ea5e9 100%);
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.15s, box-shadow 0.2s;
+}
+.btn-info:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35);
+}
+.btn-info:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+.btn-sm {
+    padding: 6px 14px;
+    font-size: 12px;
+}
+.network-message {
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+.network-message.success {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+}
+.network-message.error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+.network-list-container {
+    margin-top: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.network-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+.network-table thead {
+    background: #f1f5f9;
+}
+.network-table th,
+.network-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid #e2e8f0;
+    word-break: break-word;
+}
+.network-table th {
+    font-weight: 600;
+    color: #475569;
+}
+.network-table tbody tr:last-child td {
+    border-bottom: none;
+}
+.network-table tbody tr:hover {
+    background: #f8fafc;
+}
+.network-table .empty-cell {
+    text-align: center;
+    color: #94a3b8;
+    padding: 24px 14px;
+    font-style: italic;
+}
+.network-table .driver-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #e0e7ff;
+    color: #4338ca;
+}
+.network-table .driver-tag.host { background: #fef3c7; color: #92400e; }
+.network-table .driver-tag.bridge { background: #dbeafe; color: #1e40af; }
+.network-table .driver-tag.overlay { background: #fae8ff; color: #86198f; }
+.network-table .driver-tag.none { background: #f1f5f9; color: #475569; }
+@media (max-width: 720px) {
+    .network-section { padding: 14px; }
+    .network-create-row { gap: 10px; flex-direction: column; }
+    .network-input-group { max-width: 100% !important; }
 }
 </style>
             </div>
