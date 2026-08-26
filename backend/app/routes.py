@@ -50,6 +50,7 @@ from .services import (
     detect_docker_compose,
     generate_compose_upgrade_script,
     resolve_host_scripts_dir,
+    schedule_host_docker_restart,
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -716,7 +717,7 @@ class DockerMirrorsRequest(BaseModel):
 
 @router.put("/docker-mirrors")
 async def update_docker_mirrors(request: DockerMirrorsRequest):
-    """更新 Docker 加速源配置"""
+    """更新 Docker 加速源配置并安排重启宿主机 Docker 服务。"""
     try:
         # 读取现有配置
         config = {}
@@ -727,14 +728,26 @@ async def update_docker_mirrors(request: DockerMirrorsRequest):
         # 更新加速源
         config["registry-mirrors"] = request.mirrors
         
-        # 写回配置文件
-        with open(DAEMON_JSON_PATH, 'w') as f:
+        # 原子写回配置，避免 Docker 在读取 daemon.json 时读到半截文件。
+        temp_path = DAEMON_JSON_PATH.with_suffix(".json.tmp")
+        with open(temp_path, 'w') as f:
             json.dump(config, f, indent=2)
+        temp_path.replace(DAEMON_JSON_PATH)
+
+        restart_result = await asyncio.to_thread(schedule_host_docker_restart)
+        if not restart_result["success"]:
+            log_service.error(f"Docker 加速源已保存，但重启任务创建失败: {restart_result['message']}", 'system')
+            return {
+                "success": False,
+                "message": f"加速源已保存，但未能自动重启 Docker：{restart_result['message']}",
+                "mirrors": request.mirrors,
+                "saved": True,
+            }
         
         log_service.success(f"更新 Docker 加速源配置: {len(request.mirrors)} 个加速源", 'system')
         return {
             "success": True, 
-            "message": "配置已保存，需重启 Docker 服务生效",
+            "message": "配置已保存，Docker 正在重启，服务恢复后将自动刷新页面",
             "mirrors": request.mirrors
         }
     except PermissionError:

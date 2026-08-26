@@ -2461,6 +2461,76 @@ def get_current_container_id() -> str:
     return ""
 
 
+def schedule_host_docker_restart(delay_seconds: int = 3) -> Dict:
+    """安排重启宿主机 Docker 服务。
+
+    应用本身运行在容器中，直接调用 ``systemctl`` 只能影响容器命名空间。
+    因此复用当前应用镜像启动一个短生命周期的特权辅助容器，并让它加入
+    宿主机 PID/挂载/网络命名空间后执行 systemctl。延迟数秒可确保 HTTP
+    响应先返回给浏览器，避免 Docker 重启导致请求在半途中断开。
+    """
+    container_id = get_current_container_id()
+    if not container_id:
+        return {
+            "success": False,
+            "message": "未检测到当前应用容器，无法自动重启宿主机 Docker"
+        }
+
+    try:
+        inspect_result = subprocess.run(
+            ["docker", "inspect", container_id],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if inspect_result.returncode != 0:
+            error = (inspect_result.stderr or inspect_result.stdout or "未知错误").strip()
+            return {"success": False, "message": f"无法读取当前容器信息: {error}"}
+
+        info = json.loads(inspect_result.stdout)[0]
+        image = (info.get("Config") or {}).get("Image")
+        if not image:
+            return {"success": False, "message": "无法确定当前应用镜像，无法创建重启任务"}
+
+        helper_name = f"doublestack-docker-restart-{int(time.time())}"
+        restart_command = (
+            f"sleep {max(1, delay_seconds)}; "
+            "nsenter -t 1 -m -u -i -n -p -- sh -c "
+            "'systemctl restart docker || service docker restart || /etc/init.d/docker restart'"
+        )
+        result = subprocess.run(
+            [
+                "docker", "run", "-d", "--rm",
+                "--name", helper_name,
+                "--privileged",
+                "--pid=host",
+                "--network=host",
+                image,
+                "sh", "-c", restart_command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if result.returncode != 0:
+            error = (result.stderr or result.stdout or "未知错误").strip()
+            return {"success": False, "message": f"创建 Docker 重启任务失败: {error}"}
+
+        helper_id = result.stdout.strip()
+        log_service.warning(
+            "已安排重启宿主机 Docker 服务，运行中的容器会短暂中断", "system"
+        )
+        return {
+            "success": True,
+            "message": "Docker 重启任务已创建，服务将短暂不可用后自动恢复",
+            "helper_container_id": helper_id,
+        }
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return {"success": False, "message": f"创建 Docker 重启任务失败: {str(e)}"}
+    except (IndexError, json.JSONDecodeError, Exception) as e:
+        return {"success": False, "message": f"创建 Docker 重启任务失败: {str(e)}"}
+
+
 def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v2.sh") -> dict:
     """通过反向推导当前容器的挂载信息，得到脚本文件在**宿主机**上的绝对路径，
     并给出可直接在宿主机 shell 中粘贴执行的命令（一行式 + cd 式）。

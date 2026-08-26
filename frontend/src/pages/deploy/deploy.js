@@ -2,6 +2,18 @@ const API_BASE_URL = '/api';
 
 let originalContent = '';
 
+function setSaveButtonsDisabled(disabled) {
+    document.querySelectorAll('.deploy-save-btn').forEach(btn => {
+        btn.disabled = disabled;
+    });
+}
+
+function setDeployButtonsDisabled(disabled) {
+    document.querySelectorAll('.deploy-deploy-btn').forEach(btn => {
+        btn.disabled = disabled;
+    });
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
     try {
         await loadSidebar();
@@ -180,8 +192,6 @@ function filterFiles(searchText) {
 
 async function loadFileContent(repoName, fileName) {
     const editor = document.getElementById('ymlEditor');
-    const saveBtn = document.getElementById('saveBtn');
-    const deployBtn = document.getElementById('deployBtn');
     const modeSection = document.getElementById('modeSection');
     const paramsSection = document.getElementById('paramsSection');
     const editorSection = document.getElementById('editorSection');
@@ -191,8 +201,8 @@ async function loadFileContent(repoName, fileName) {
         editor.value = '';
         editor.placeholder = '选择一个YML文件查看内容...';
         originalContent = '';
-        saveBtn.disabled = true;
-        deployBtn.disabled = true;
+        setSaveButtonsDisabled(true);
+        setDeployButtonsDisabled(true);
         document.getElementById('fileName').textContent = '未选择文件';
         document.getElementById('fileSize').textContent = '0 KB';
         document.getElementById('lastModified').textContent = '未知';
@@ -222,8 +232,8 @@ async function loadFileContent(repoName, fileName) {
         document.getElementById('fileSize').textContent = `${(data.content.length / 1024).toFixed(2)} KB`;
         document.getElementById('lastModified').textContent = data.last_modified || '未知';
         
-        saveBtn.disabled = true;
-        deployBtn.disabled = false;
+        setSaveButtonsDisabled(true);
+        setDeployButtonsDisabled(false);
         
         adjustEditorHeight(editor);
         parseYmlAndShowParams(data.content);
@@ -286,9 +296,9 @@ function parseYmlAndShowParams(ymlContent) {
                     if (Array.isArray(config[field])) {
                         editType = 'multi';
                         if (field === 'ports') {
-                            originalValues = config[field].map(p => p.split('-').pop().trim());
+                            originalValues = config[field].map(p => p.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((p, idx) => {
-                                const portMapping = p.split('-').pop().trim();
+                                const portMapping = p.replace(/^\s*-\s+/, '').trim();
                                 const [hostPort, containerPort] = portMapping.includes(':') ? portMapping.split(':') : [portMapping, portMapping];
                                 return `<div class="port-input-group">
                                     <label class="port-label">宿主主机端口</label>
@@ -299,9 +309,9 @@ function parseYmlAndShowParams(ymlContent) {
                                 </div>`;
                             }).join('<br>');
                         } else if (field === 'volumes') {
-                            originalValues = config[field].map(v => v.split('-').pop().trim());
+                            originalValues = config[field].map(v => v.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((v, idx) => {
-                                const fullPath = v.split('-').pop().trim();
+                                const fullPath = v.replace(/^\s*-\s+/, '').trim();
                                 const parts = fullPath.split(':');
                                 const hostPath = parts[0];
                                 const containerPath = parts.length >= 2 ? parts.slice(1).join(':') : '';
@@ -312,9 +322,9 @@ function parseYmlAndShowParams(ymlContent) {
                                 </div>`;
                             }).join('<br>');
                         } else if (field === 'environment') {
-                            originalValues = config[field].map(e => e.split('-').pop().trim());
+                            originalValues = config[field].map(e => e.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((e, idx) => {
-                                const env = e.split('-').pop().trim();
+                                const env = e.replace(/^\s*-\s+/, '').trim();
                                 let key = '';
                                 let val = '';
                                 if (env.includes('=')) {
@@ -477,7 +487,7 @@ async function saveFileContent(repoName, fileName, content) {
         
         if (result.success) {
             originalContent = content;
-            document.getElementById('saveBtn').disabled = true;
+            setSaveButtonsDisabled(true);
             addLog('success', '文件保存成功');
         } else {
             addLog('error', '保存失败: ' + result.message);
@@ -577,13 +587,12 @@ function finishDeployFlow(finalResult) {
 }
 
 async function deployApplication(repoName, fileName) {
-    const deployBtn = document.getElementById('deployBtn');
     const outputSection = document.getElementById('outputSection');
     if (outputSection) outputSection.style.display = 'block';
     resetDeployProgressPanel();
 
     try {
-        deployBtn.disabled = true;
+        setDeployButtonsDisabled(true);
         addLog('info', `开始部署应用: ${fileName}`);
 
         const response = await fetch(`${API_BASE_URL}/deploy`, {
@@ -659,7 +668,7 @@ async function deployApplication(repoName, fileName) {
         const st = document.getElementById('deployStatus');
         if (st) { st.textContent = '异常'; st.style.color = '#f87171'; }
     } finally {
-        deployBtn.disabled = false;
+        setDeployButtonsDisabled(false);
     }
 }
 
@@ -691,7 +700,6 @@ function addLog(type, message, ts) {
 
 function syncParamsToEditor() {
     const editor = document.getElementById('ymlEditor');
-    const saveBtn = document.getElementById('saveBtn');
     let content = editor.value;
     let hasChanges = false;
     
@@ -784,7 +792,7 @@ function syncParamsToEditor() {
     
     if (hasChanges) {
         editor.value = content;
-        saveBtn.disabled = false;
+        setSaveButtonsDisabled(false);
         adjustEditorHeight(editor);
     }
 }
@@ -793,8 +801,6 @@ function setupEventListeners() {
     const repoSelect = document.getElementById('repoSelect');
     const fileSelect = document.getElementById('fileSelect');
     const editor = document.getElementById('ymlEditor');
-    const saveBtn = document.getElementById('saveBtn');
-    const deployBtn = document.getElementById('deployBtn');
     const clearLogBtn = document.getElementById('clearLogBtn');
     
     repoSelect.addEventListener('change', function() {
@@ -802,8 +808,8 @@ function setupEventListeners() {
         editor.value = '';
         editor.placeholder = '选择一个YML文件查看内容...';
         originalContent = '';
-        saveBtn.disabled = true;
-        deployBtn.disabled = true;
+        setSaveButtonsDisabled(true);
+        setDeployButtonsDisabled(true);
         const searchInput = document.getElementById('fileSearch');
         loadYmlFiles(this.value, searchInput.value);
     });
@@ -814,7 +820,7 @@ function setupEventListeners() {
     
     editor.addEventListener('input', function() {
         const hasChanges = this.value !== originalContent;
-        saveBtn.disabled = !hasChanges;
+        setSaveButtonsDisabled(!hasChanges);
         adjustEditorHeight(this);
     });
     
@@ -824,12 +830,16 @@ function setupEventListeners() {
         }
     });
     
-    saveBtn.addEventListener('click', function() {
-        saveFileContent(repoSelect.value, fileSelect.value, editor.value);
+    document.querySelectorAll('.deploy-save-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            saveFileContent(repoSelect.value, fileSelect.value, editor.value);
+        });
     });
     
-    deployBtn.addEventListener('click', function() {
-        deployApplication(repoSelect.value, fileSelect.value);
+    document.querySelectorAll('.deploy-deploy-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            deployApplication(repoSelect.value, fileSelect.value);
+        });
     });
     
     clearLogBtn.addEventListener('click', function() {

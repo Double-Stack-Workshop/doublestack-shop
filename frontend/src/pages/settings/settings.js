@@ -559,9 +559,13 @@ function deleteMirror(index) {
 }
 
 async function saveDockerMirrors() {
+    if (!confirm('保存后将自动重启宿主机 Docker 服务。运行中的容器会短暂中断，本应用会在服务恢复后自动刷新。确定继续吗？')) {
+        return;
+    }
+
     const btn = document.getElementById('saveMirrorBtn');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存并重启中...';
     
     try {
         const response = await fetch(`${API_BASE_URL}/docker-mirrors`, {
@@ -575,14 +579,15 @@ async function saveDockerMirrors() {
         const result = await response.json();
         
         if (result.success) {
-            showMessage('配置已保存，请在宿主机执行以下命令重启 Docker：\n\nsystemctl restart docker\n# 或\nservice docker restart', 'success');
+            showMessage('配置已保存，Docker 正在重启；服务恢复后将自动刷新页面', 'success');
+            setTimeout(() => window.location.reload(), 10000);
         } else {
-            showMessage(result.message || '保存失败', 'error');
+            showMessage(result.message || '保存或重启失败', result.saved ? 'info' : 'error');
         }
     } catch (error) {
         showMessage('网络错误，请稍后重试', 'error');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存并重启 Docker';
     }
 }
