@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 let originalContent = '';
 
@@ -34,38 +34,15 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('deploy');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('deploy');
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '/src/pages/login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
+    window.AppPage.populateUsername();
 }
 
 async function loadRepositories() {
@@ -81,21 +58,28 @@ async function loadRepositories() {
     
     try {
         const [reposResponse, currentRepoResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/repos`),
-            fetch(`${API_BASE_URL}/current-repo`)
+            apiFetch(`${API_BASE_URL}/repos`),
+            apiFetch(`${API_BASE_URL}/current-repo`)
         ]);
         
         if (!reposResponse.ok) {
             throw new Error(`HTTP error! status: ${reposResponse.status}`);
         }
         const repos = await reposResponse.json();
-        
-        repos.forEach(repo => {
+        const deployableRepos = repos.filter((repo) => repo.status === 'active' && repo.yml_count > 0);
+
+        deployableRepos.forEach(repo => {
             const option = document.createElement('option');
             option.value = repo.name;
             option.textContent = repo.name;
             select.appendChild(option);
         });
+
+        if (deployableRepos.length === 0) {
+            select.innerHTML = '<option value="">暂无已同步的可部署仓库</option>';
+            addLog('warning', '暂无已同步且包含 YML 文件的仓库，请先在仓库管理中同步仓库');
+            return;
+        }
         
         let selectedRepo = '';
         if (currentRepoResponse.ok) {
@@ -103,8 +87,8 @@ async function loadRepositories() {
             selectedRepo = currentRepoData.data?.repo_name || '';
         }
         
-        if (!selectedRepo && repos.length > 0) {
-            selectedRepo = repos[0].name;
+        if (!deployableRepos.some((repo) => repo.name === selectedRepo)) {
+            selectedRepo = deployableRepos[0].name;
         }
         
         if (selectedRepo) {
@@ -138,7 +122,7 @@ async function loadYmlFiles(repoName, searchQuery = '') {
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/${repoName}/files`);
+        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -217,7 +201,7 @@ async function loadFileContent(repoName, fileName) {
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`);
+        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`);
         
         if (!response.ok) {
             throw new Error('文件读取失败');
@@ -290,13 +274,9 @@ function parseYmlAndShowParams(ymlContent) {
                 if (config[field] !== undefined && config[field] !== null) {
                     hasParams = true;
                     let displayValue = '';
-                    let editType = 'single';
-                    let originalValues = [];
                     
                     if (Array.isArray(config[field])) {
-                        editType = 'multi';
                         if (field === 'ports') {
-                            originalValues = config[field].map(p => p.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((p, idx) => {
                                 const portMapping = p.replace(/^\s*-\s+/, '').trim();
                                 const [hostPort, containerPort] = portMapping.includes(':') ? portMapping.split(':') : [portMapping, portMapping];
@@ -309,7 +289,6 @@ function parseYmlAndShowParams(ymlContent) {
                                 </div>`;
                             }).join('<br>');
                         } else if (field === 'volumes') {
-                            originalValues = config[field].map(v => v.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((v, idx) => {
                                 const fullPath = v.replace(/^\s*-\s+/, '').trim();
                                 const parts = fullPath.split(':');
@@ -322,7 +301,6 @@ function parseYmlAndShowParams(ymlContent) {
                                 </div>`;
                             }).join('<br>');
                         } else if (field === 'environment') {
-                            originalValues = config[field].map(e => e.replace(/^\s*-\s+/, '').trim());
                             displayValue = config[field].map((e, idx) => {
                                 const env = e.replace(/^\s*-\s+/, '').trim();
                                 let key = '';
@@ -341,7 +319,6 @@ function parseYmlAndShowParams(ymlContent) {
                                 </div>`;
                             }).join('<br>');
                         } else {
-                            originalValues = config[field];
                             displayValue = config[field].map((val, idx) => {
                                 return `<input type="text" class="param-input" data-service="${serviceName}" data-field="${field}" data-idx="${idx}" data-original="${val}" value="${val}">`;
                             }).join('<br>');
@@ -377,64 +354,7 @@ function parseYmlAndShowParams(ymlContent) {
 }
 
 function parseYamlServices(content) {
-    const lines = content.split('\n');
-    const services = {};
-    let currentService = null;
-    let currentConfig = {};
-    let inServices = false;
-    let currentArrayKey = null;
-    
-    for (let i = 0; i < lines.length; i++) {
-        const originalLine = lines[i];
-        let line = originalLine.trim();
-        
-        if (line === '' || line.startsWith('#')) continue;
-        
-        if (line.startsWith('services:')) {
-            inServices = true;
-            continue;
-        }
-        
-        if (!inServices) continue;
-        
-        if (line.startsWith('- ')) {
-            if (currentArrayKey && currentService) {
-                const item = line.substring(1).trim();
-                if (!currentConfig[currentArrayKey]) {
-                    currentConfig[currentArrayKey] = [];
-                }
-                currentConfig[currentArrayKey].push(item);
-            }
-            continue;
-        }
-        
-        const colonIndex = line.indexOf(':');
-        if (colonIndex === -1) {
-            continue;
-        }
-        
-        const key = line.substring(0, colonIndex).trim();
-        const value = line.substring(colonIndex + 1).trim();
-        
-        const leadingSpaces = originalLine.length - originalLine.trimStart().length;
-        
-        if (leadingSpaces <= 2 && key !== 'services') {
-            currentService = key;
-            currentConfig = {};
-            services[currentService] = currentConfig;
-            currentArrayKey = null;
-        } else if (currentService) {
-            if (value === '') {
-                currentConfig[key] = [];
-                currentArrayKey = key;
-            } else {
-                currentConfig[key] = value;
-                currentArrayKey = null;
-            }
-        }
-    }
-    
-    return services;
+    return window.DeployYaml.parseServices(content);
 }
 
 function getFieldDisplayName(field) {
@@ -471,7 +391,7 @@ function adjustEditorHeight(editor) {
 
 async function saveFileContent(repoName, fileName, content) {
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`, {
+        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -595,7 +515,7 @@ async function deployApplication(repoName, fileName) {
         setDeployButtonsDisabled(true);
         addLog('info', `开始部署应用: ${fileName}`);
 
-        const response = await fetch(`${API_BASE_URL}/deploy`, {
+        const response = await apiFetch(`${API_BASE_URL}/deploy`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -610,41 +530,21 @@ async function deployApplication(repoName, fileName) {
             throw new Error(`HTTP ${response.status}`);
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
         let finalResult = null;
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            let idx;
-            while ((idx = buffer.indexOf('\n\n')) >= 0) {
-                const raw = buffer.slice(0, idx);
-                buffer = buffer.slice(idx + 2);
-                if (!raw.startsWith('data:')) continue;
-                const jsonStr = raw.slice(5).trim();
-                if (!jsonStr) continue;
-                let event;
-                try {
-                    event = JSON.parse(jsonStr);
-                } catch {
-                    continue;
-                }
-                if (event.type === 'log') {
+        await window.DeployProgress.consume(response, (event) => {
+            if (event.type === 'log') {
                     const level = event.level === 'success' ? 'success' :
                                   event.level === 'error' ? 'error' : 'info';
                     addLog(level, event.message, event.ts);
-                } else if (event.type === 'progress') {
+            } else if (event.type === 'progress') {
                     updateStageProgress(event);
                     // 汇总时间也同步刷新
                     const totalEl = document.getElementById('totalElapsed');
                     if (totalEl && event.elapsed_sec != null) {
                         totalEl.textContent = formatDuration(event.elapsed_sec);
                     }
-                } else if (event.type === 'done') {
+            } else if (event.type === 'done') {
                     finalResult = event;
                     if (event.success) {
                         addLog('success', event.message, event.ts);
@@ -654,9 +554,8 @@ async function deployApplication(repoName, fileName) {
                     } else {
                         addLog('error', event.message, event.ts);
                     }
-                }
             }
-        }
+        });
 
         finishDeployFlow(finalResult);
 
@@ -911,27 +810,14 @@ async function loadNetworks() {
     if (!tbody) return;
     tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载中...</td></tr>`;
     try {
-        const response = await fetch(`${API_BASE_URL}/networks`);
+        const response = await apiFetch(`${API_BASE_URL}/networks`);
         const res = await response.json();
         if (!response.ok || !res.success) {
             tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载失败：${res.message || '未知错误'}</td></tr>`;
             return;
         }
         const networks = Array.isArray(res.data) ? res.data : [];
-        if (networks.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">暂无网络</td></tr>`;
-            return;
-        }
-        tbody.innerHTML = networks.map(function(net) {
-            const driver = (net.driver || '').toLowerCase();
-            return `
-                <tr>
-                    <td><code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-size:12px;">${escapeHtml(net.name || '')}</code></td>
-                    <td><span class="driver-tag ${driver}">${escapeHtml(net.driver || '')}</span></td>
-                    <td>${escapeHtml(net.scope || '')}</td>
-                </tr>
-            `;
-        }).join('');
+        tbody.innerHTML = window.DeployNetwork.render(networks, escapeHtml);
     } catch (error) {
         console.error('加载网络列表失败:', error);
         tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">加载失败：${escapeHtml(error.message || '网络异常')}</td></tr>`;
@@ -965,7 +851,7 @@ async function createNetwork() {
     msgEl.style.display = 'none';
 
     try {
-        const response = await fetch(`${API_BASE_URL}/networks`, {
+        const response = await apiFetch(`${API_BASE_URL}/networks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name, driver: driver })

@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 function goToDeploy(ymlFileName) {
     window.location.href = `/src/pages/deploy/deploy.html?search=${encodeURIComponent(ymlFileName)}`;
@@ -11,38 +11,15 @@ function openTutorial(url) {
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '/src/pages/login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
+    window.AppPage.populateUsername();
 }
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('recommend');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('recommend');
 }
 
 async function loadRecommendations() {
@@ -50,9 +27,9 @@ async function loadRecommendations() {
     
     try {
         const [currentRepoResponse, reposResponse, recommendCfgResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/current-repo`),
-            fetch(`${API_BASE_URL}/repos`),
-            fetch(`${API_BASE_URL}/recommend-config`)
+            apiFetch(`${API_BASE_URL}/current-repo`),
+            apiFetch(`${API_BASE_URL}/repos`),
+            apiFetch(`${API_BASE_URL}/recommend-config`)
         ]);
         
         // 从后端加载推荐配置（读取自 data/recommend.json）
@@ -87,7 +64,7 @@ async function loadRecommendations() {
             return;
         }
         
-        const filesResponse = await fetch(`${API_BASE_URL}/repos/${encodeURIComponent(currentRepoName)}/files`);
+        const filesResponse = await apiFetch(`${API_BASE_URL}/repos/${encodeURIComponent(currentRepoName)}/files`);
         if (!filesResponse.ok) {
             throw new Error('获取文件列表失败');
         }

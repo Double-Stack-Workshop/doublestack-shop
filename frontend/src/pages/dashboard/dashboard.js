@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 // 宿主机实时指标的 SSE 句柄（全局，保证同一时间只有一条连接）
 let _hostMetricsSource = null;
@@ -6,13 +6,18 @@ let _hostMetricsReconnectTimer = null;
 
 document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
-    checkLogin();
-    loadUserInfo();
-    loadRepoCount();
-    loadDeployedAppsCount();
-    loadContainerCount();
-    loadSuccessRate();
-    loadDeploymentHistory();
+    if (!checkLogin()) return;
+    const user = loadUserInfo();
+    if (user.isAdmin) {
+        loadRepoCount();
+        loadDeployedAppsCount();
+        loadContainerCount();
+        loadSuccessRate();
+        loadDeploymentHistory();
+    } else {
+        applyStandardUserDashboard();
+        loadDashboardStats();
+    }
     loadConnectivity();
     loadDockerInfo();
     loadHostInfo(); // 内部成功后会启动实时 SSE
@@ -34,7 +39,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         stopHostMetricsStream(false);
     });
 
-    setInterval(loadContainerCount, 10000);
+    setInterval(user.isAdmin ? loadContainerCount : loadDashboardStats, 10000);
 });
 
 
@@ -124,58 +129,44 @@ function startHostMetricsStream() {
 }
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('dashboard');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('dashboard');
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
+    window.AppPage.populateUsername();
+    const username = localStorage.getItem('username') || '用户';
     const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-        document.querySelector('.header-left h1').textContent = `欢迎回来，${username}`;
-    }
-    
-    if (!isAdmin) {
-        const menuItems = document.querySelectorAll('.sidebar-nav li');
-        menuItems.forEach((item, index) => {
-            if (index > 0) {
-                item.style.display = 'none';
-            }
-        });
-        
-        const quickActions = document.querySelector('.quick-actions');
-        if (quickActions) {
-            quickActions.style.display = 'none';
-        }
+    const heading = document.querySelector('.header-left h1');
+    if (heading) heading.textContent = `欢迎回来，${username}`;
+    return { username, isAdmin };
+}
+
+function applyStandardUserDashboard() {
+    document.querySelector('.quick-actions')?.remove();
+    document.querySelector('.recent-activity')?.remove();
+}
+
+async function loadDashboardStats() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/dashboard/stats`);
+        if (!response.ok) return;
+        const data = await response.json();
+        document.getElementById('repoCount').textContent = data.repo_count;
+        document.getElementById('deployedAppsCount').textContent = data.deployed_apps_count;
+        document.getElementById('containerCount').textContent = data.container_count;
+        document.getElementById('successRate').textContent = `${data.success_rate}%`;
+    } catch (error) {
+        console.error('Failed to load dashboard stats:', error);
     }
 }
 
 async function loadRepoCount() {
     try {
-        const response = await fetch(`${API_BASE_URL}/repos`);
+        const response = await apiFetch(`${API_BASE_URL}/repos`);
         if (response.ok) {
             const repos = await response.json();
             document.getElementById('repoCount').textContent = repos.length;
@@ -187,7 +178,7 @@ async function loadRepoCount() {
 
 async function loadDeployedAppsCount() {
     try {
-        const response = await fetch(`${API_BASE_URL}/deployments/count`);
+        const response = await apiFetch(`${API_BASE_URL}/deployments/count`);
         if (response.ok) {
             const data = await response.json();
             document.getElementById('deployedAppsCount').textContent = data.count;
@@ -199,7 +190,7 @@ async function loadDeployedAppsCount() {
 
 async function loadSuccessRate() {
     try {
-        const response = await fetch(`${API_BASE_URL}/deployments/success-rate`);
+        const response = await apiFetch(`${API_BASE_URL}/deployments/success-rate`);
         if (response.ok) {
             const data = await response.json();
             document.getElementById('successRate').textContent = data.rate + '%';
@@ -211,7 +202,7 @@ async function loadSuccessRate() {
 
 async function loadContainerCount() {
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/count`);
+        const response = await apiFetch(`${API_BASE_URL}/containers/count`);
         if (response.ok) {
             const data = await response.json();
             document.getElementById('containerCount').textContent = data.count;
@@ -223,7 +214,7 @@ async function loadContainerCount() {
 
 async function loadDeploymentHistory() {
     try {
-        const response = await fetch(`${API_BASE_URL}/deployments?limit=10`);
+        const response = await apiFetch(`${API_BASE_URL}/deployments?limit=10`);
         if (response.ok) {
             const deployments = await response.json();
             renderDeploymentHistory(deployments);
@@ -318,8 +309,12 @@ function navigateTo(page) {
     const pageMap = {
         'repository': '../repository/repository.html',
         'deploy': '../deploy/deploy.html',
+        'recommend': '../recommend/recommend.html',
         'container': '../container/container.html',
         'backup': '../backup/backup.html',
+        'image': '../image/image.html',
+        'terminal': '../terminal/terminal.html',
+        'logs': '../logs/logs.html',
         'settings': '../settings/settings.html'
     };
     
@@ -333,7 +328,7 @@ async function loadConnectivity() {
     const container = document.getElementById('connectivityGrid');
     
     try {
-        const response = await fetch(`${API_BASE_URL}/connectivity`);
+        const response = await apiFetch(`${API_BASE_URL}/connectivity`);
         if (response.ok) {
             const data = await response.json();
             renderConnectivity(data);
@@ -411,7 +406,7 @@ async function loadHostInfo() {
     const container = document.getElementById('hostInfoGrid');
     
     try {
-        const response = await fetch(`${API_BASE_URL}/system/host-info`);
+        const response = await apiFetch(`${API_BASE_URL}/system/host-info`);
         if (response.ok) {
             const data = await response.json();
             if (data.success && data.data) {
@@ -598,7 +593,7 @@ async function loadDockerInfo() {
     const container = document.getElementById('dockerInfoGrid');
     
     try {
-        const response = await fetch(`${API_BASE_URL}/system/docker-info`);
+        const response = await apiFetch(`${API_BASE_URL}/system/docker-info`);
         if (response.ok) {
             const data = await response.json();
             if (data.success && data.data) {

@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
             
             try {
-                const response = await fetch(`${API_BASE_URL}/repos/init-default`, {
+                const response = await apiFetch(`${API_BASE_URL}/repos/init-default`, {
                     method: 'POST'
                 });
                 
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 添加中...';
         
         try {
-            const response = await fetch(`${API_BASE_URL}/repos`, {
+            const response = await apiFetch(`${API_BASE_URL}/repos`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -130,27 +130,14 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('repository');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('repository');
 }
 
 let currentRepoName = '';
 
 async function loadRepos() {
     try {
-        const response = await fetch(`${API_BASE_URL}/repos`);
+        const response = await apiFetch(`${API_BASE_URL}/repos`);
         const repos = await response.json();
         
         const currentRepo = repos.find(r => r.is_current);
@@ -219,7 +206,7 @@ async function setCurrentRepo(repoName, btn) {
     const card = btn.closest('.repo-card');
     
     try {
-        const response = await fetch(`${API_BASE_URL}/current-repo`, {
+        const response = await apiFetch(`${API_BASE_URL}/current-repo`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -303,7 +290,7 @@ async function syncRepo(repoName, btn) {
     btn.innerHTML = '<i class="fas fa-refresh fa-spin"></i><span>同步中</span>';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/${repoName}/sync`, {
+        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/sync`, {
             method: 'POST'
         });
         
@@ -340,7 +327,7 @@ async function syncRepo(repoName, btn) {
 
 async function viewRepo(repoName) {
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/${repoName}`);
+        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}`);
         const repo = await response.json();
         
         if (response.ok) {
@@ -411,29 +398,11 @@ function showMessage(message, type) {
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    
-    if (!isAdmin) {
-        alert('您没有权限访问此页面');
-        window.location.href = '../dashboard/dashboard.html';
-        return false;
-    }
-    
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
+    window.AppPage.populateUsername();
 }
 
 async function initDefaultRepos() {
@@ -444,7 +413,7 @@ async function initDefaultRepos() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/repos/init-default`, {
+        const response = await apiFetch(`${API_BASE_URL}/repos/init-default`, {
             method: 'POST'
         });
         

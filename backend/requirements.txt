@@ -8,3 +8,4 @@ pydantic==2.5.3
 httpx==0.26.0
 requests==2.31.0
 docker==7.0.0
+bcrypt==4.1.2

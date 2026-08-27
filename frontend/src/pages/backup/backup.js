@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 let allBackups = [];
 let allContainers = [];
 let currentBackupId = null;
@@ -14,52 +14,20 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('backup');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('backup');
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
-    
-    if (!isAdmin) {
-        const menuItems = document.querySelectorAll('.sidebar-nav li');
-        menuItems.forEach((item, index) => {
-            if (index > 0) {
-                item.style.display = 'none';
-            }
-        });
-    }
+    window.AppPage.populateUsername();
 }
 
 async function loadContainers() {
     try {
-        const response = await fetch(`${API_BASE_URL}/containers`);
+        const response = await apiFetch(`${API_BASE_URL}/containers`);
         if (response.ok) {
             allContainers = await response.json();
         } else {
@@ -91,7 +59,7 @@ function updateStats() {
 
 async function refreshBackups() {
     try {
-        const response = await fetch(`${API_BASE_URL}/backups`);
+        const response = await apiFetch(`${API_BASE_URL}/backups`);
         if (response.ok) {
             allBackups = await response.json();
         } else {
@@ -226,7 +194,7 @@ async function createBackup() {
     submitBtn.disabled = true;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}/backup`, {
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}/backup`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -255,7 +223,7 @@ async function showBackupDetail(backupId) {
     currentBackupId = backupId;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/backups/${backupId}`);
+        const response = await apiFetch(`${API_BASE_URL}/backups/${backupId}`);
         if (response.ok) {
             const backup = await response.json();
             document.getElementById('detailModalTitle').textContent = `备份详情 - ${backup.name}`;
@@ -305,7 +273,7 @@ async function deleteBackup(backupId) {
     if (!confirm('确定要删除此备份吗？此操作不可撤销！')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/backups/${id}`, {
+        const response = await apiFetch(`${API_BASE_URL}/backups/${id}`, {
             method: 'DELETE'
         });
         
@@ -327,7 +295,7 @@ async function restoreBackup(backupId) {
     if (!confirm('确定要恢复此备份吗？这将覆盖现有容器数据！')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/backups/${backupId}/restore`, {
+        const response = await apiFetch(`${API_BASE_URL}/backups/${backupId}/restore`, {
             method: 'POST'
         });
         
@@ -346,7 +314,7 @@ async function restoreBackup(backupId) {
 
 async function downloadBackup(backupId) {
     try {
-        const response = await fetch(`${API_BASE_URL}/backups/${backupId}/download`);
+        const response = await apiFetch(`${API_BASE_URL}/backups/${backupId}/download`);
         if (response.ok) {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -404,7 +372,7 @@ async function performRestore() {
         const formData = new FormData();
         formData.append('file', selectedRestoreFile);
         
-        const response = await fetch(`${API_BASE_URL}/backups/restore-file`, {
+        const response = await apiFetch(`${API_BASE_URL}/backups/restore-file`, {
             method: 'POST',
             body: formData
         });
@@ -449,7 +417,7 @@ async function cleanOldBackups() {
     if (!confirm('确定要清理旧备份吗？这将删除所有超过30天的备份！')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/backups/clean`, {
+        const response = await apiFetch(`${API_BASE_URL}/backups/clean`, {
             method: 'POST'
         });
         

@@ -1,0 +1,9 @@
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["data", "repos", "backup"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.ruff.format]
+quote-style = "double"

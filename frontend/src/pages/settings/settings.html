@@ -49,6 +49,10 @@
                                 <i class="fab fa-github"></i>
                                 <span>项目地址</span>
                             </a>
+                            <button id="clearCacheBtn" class="check-update-btn" type="button" onclick="clearApplicationCache()">
+                                <i class="fas fa-broom"></i>
+                                <span>清理缓存</span>
+                            </button>
                         </div>
                     </div>
             </section>
@@ -207,6 +211,8 @@
         <div id="messageToast" class="message-toast"></div>
     </div>
     
+    <script src="/src/components/common/page-common.js"></script>
+    <script src="/src/components/common/cache.js"></script>
     <script src="settings.js"></script>
 </body>
 </html>

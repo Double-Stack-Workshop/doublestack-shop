@@ -452,10 +452,11 @@ def _stream_command(cmd: list, env: dict, timeout: int, stage: str, label: str, 
         reader_thread.join(timeout=2)
     return proc.returncode
 
-REPOS_DIR = Path("./repos")
+APP_ROOT = Path(__file__).resolve().parent.parent
+REPOS_DIR = Path(os.getenv("REPOS_DIR", APP_ROOT / "repos")).resolve()
 REPOS_DIR.mkdir(exist_ok=True)
 
-DATA_DIR = Path("./data")
+DATA_DIR = Path(os.getenv("DATA_DIR", APP_ROOT / "data")).resolve()
 DATA_DIR.mkdir(exist_ok=True)
 REPOS_JSON_PATH = DATA_DIR / "repos.json"
 
@@ -1039,7 +1040,6 @@ def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
                 if yml_file.path == file_path or yml_file.name == file_path:
                     file_full_path = repo_dir / yml_file.path
                     if file_full_path.exists():
-                        import os
                         mtime = file_full_path.stat().st_mtime
                         from datetime import datetime, timezone, timedelta
                         last_modified = datetime.fromtimestamp(mtime, timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
@@ -1113,6 +1113,18 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
     """
     from .database import add_deployment
 
+    compose_command = get_compose_command()
+    if not compose_command:
+        yield {
+            "type": "done",
+            "success": False,
+            "message": "未检测到可用的 Docker Compose（docker compose 或 docker-compose）",
+            "data": {"repo_name": repo_name, "file_path": file_path, "status": "error"},
+            "ts": _now_iso(),
+            "elapsed_sec": 0,
+        }
+        return
+
     for repo in repos_db:
         if repo.name == repo_name:
             for yml_file in repo.yml_files:
@@ -1120,7 +1132,14 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                     # 使用实际的仓库目录名称，而不是自定义名称
                     actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
                     repo_dir = REPOS_DIR / actual_repo_dir_name
-                    yml_full_path = repo_dir / yml_file.path
+                    yml_full_path = (repo_dir / yml_file.path).resolve()
+                    execution_compose_command = compose_command
+                    execution_yml_path = yml_full_path
+                    host_yml_path = get_host_mapped_path(yml_full_path)
+                    host_compose_command = get_host_compose_command() if host_yml_path else []
+                    if host_compose_command:
+                        execution_compose_command = host_compose_command
+                        execution_yml_path = host_yml_path
 
                     # 设置环境变量（包含代理配置 + 强制 plain 进度）
                     env = os.environ.copy()
@@ -1150,12 +1169,22 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                         return {"type": "log", "level": "info", "stage": stage, "message": msg, "ts": _now_iso()}
 
                     try:
+                        if not yml_full_path.is_file():
+                            yield {
+                                "type": "done",
+                                "success": False,
+                                "message": f"部署文件不存在: {yml_full_path}",
+                                "data": {"repo_name": repo_name, "file_path": yml_file.path, "status": "error"},
+                                "ts": _now_iso(),
+                                "elapsed_sec": 0,
+                            }
+                            return
                         yield log(f"[部署开始] 正在处理文件: {yml_file.name}")
-                        yield log(f"[部署开始] 文件路径: {yml_full_path}")
+                        yield log(f"[部署开始] 文件路径: {execution_yml_path}")
 
                         # 拉取镜像（实时流式输出）
                         pull_returncode = yield from _stream_command(
-                            ["docker-compose", "-f", str(yml_full_path), "pull"],
+                            execution_compose_command + ["-f", str(execution_yml_path), "pull"],
                             env, timeout=300, stage="pull", label="[镜像拉取]",
                             deployment_logs=deployment_logs,
                         )
@@ -1183,7 +1212,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                         # 启动容器（实时流式输出）。注意 docker-compose up 在镜像缺失时会自行触发 pull，
                         # 所以这里的空闲超时要和 pull 阶段同等宽松，避免慢网下长下载误杀。
                         up_returncode = yield from _stream_command(
-                            ["docker-compose", "-f", str(yml_full_path), "up", "-d"],
+                            execution_compose_command + ["-f", str(execution_yml_path), "up", "-d"],
                             env, timeout=300, stage="up", label="[启动日志]",
                             deployment_logs=deployment_logs,
                         )
@@ -1193,29 +1222,38 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                             container_name = None
 
                             try:
-                                ps_result = subprocess.run(
-                                    ["docker-compose", "-f", str(yml_full_path), "ps", "-q"],
+                                services_result = subprocess.run(
+                                    execution_compose_command + ["-f", str(execution_yml_path), "config", "--services"],
                                     capture_output=True,
                                     text=True,
-                                    timeout=30
+                                    timeout=30,
+                                    env=env,
                                 )
-                                if ps_result.returncode == 0 and ps_result.stdout.strip():
-                                    container_id = ps_result.stdout.strip().split('\n')[0]
+                                services = services_result.stdout.splitlines() if services_result.returncode == 0 else []
+                                for service in services:
+                                    ps_result = subprocess.run(
+                                        execution_compose_command + ["-f", str(execution_yml_path), "ps", "-q", service],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=30,
+                                        env=env,
+                                    )
+                                    if ps_result.returncode == 0 and ps_result.stdout.strip():
+                                        container_id = ps_result.stdout.strip().splitlines()[0]
+                                        break
+                                if container_id:
+                                    inspect_result = subprocess.run(
+                                        ["docker", "inspect", "--format", "{{.Name}}", container_id],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=30,
+                                    )
+                                    if inspect_result.returncode == 0:
+                                        container_name = inspect_result.stdout.strip().lstrip("/")
+                            except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+                                log_service.warning(f"部署后无法读取容器信息: {exc}", 'deploy')
 
-                                ps_full_result = subprocess.run(
-                                    ["docker-compose", "-f", str(yml_full_path), "ps"],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=30
-                                )
-                                if ps_full_result.returncode == 0:
-                                    lines = ps_full_result.stdout.strip().split('\n')
-                                    if len(lines) > 1:
-                                        container_name = lines[1].split()[0]
-                            except Exception:
-                                pass
-
-                            add_deployment(repo_name, yml_file.name, container_id, container_name, 'deployed', f'部署成功')
+                            add_deployment(repo_name, yml_file.name, container_id, container_name, 'deployed', '部署成功')
 
                             success_log1 = f"[部署成功] 容器ID: {container_id}"
                             success_log2 = f"[部署成功] 容器名称: {container_name}"
@@ -1282,7 +1320,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                         return
                     except FileNotFoundError:
                         total_elapsed = round(time.time() - deploy_started_at, 1)
-                        log_service.error(f"docker-compose 命令未找到: {yml_file.name}", 'deploy')
+                        log_service.error(f"Docker Compose 命令未找到: {yml_file.name}", 'deploy')
                         yield {
                             "type": "done",
                             "success": False,
@@ -1800,7 +1838,6 @@ def pull_image(image_name: str) -> Generator[dict, None, None]:
                "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
 
 import requests
-import time
 
 def test_connectivity(url: str, timeout: int = 10) -> Dict:
     """测试网络连通性。
@@ -1868,7 +1905,7 @@ def test_connectivity(url: str, timeout: int = 10) -> Dict:
                 "status": "timeout",
                 "latency": connect_timeout_sec * 1000,
                 "status_code": 0,
-                "message": f"连接超时（curl exit 28）",
+                "message": "连接超时（curl exit 28）",
                 "_exec_source": source,
                 "_stderr": (stderr or "")[:500],
             }
@@ -2033,15 +2070,15 @@ def set_proxy_config(http_proxy: str = "", https_proxy: str = "") -> Dict:
             from urllib.parse import urlparse
             parsed = urlparse(url)
             return parsed.scheme in ('http', 'https') and parsed.hostname and parsed.port
-        except:
+        except (TypeError, ValueError):
             return False
     
     if http_proxy and not validate_proxy(http_proxy):
-        log_service.error(f"代理配置失败: HTTP代理格式不正确", 'system')
+        log_service.error("代理配置失败: HTTP代理格式不正确", 'system')
         return {"success": False, "message": "HTTP代理格式不正确，请使用 http://ip:port 格式"}
     
     if https_proxy and not validate_proxy(https_proxy):
-        log_service.error(f"代理配置失败: HTTPS代理格式不正确", 'system')
+        log_service.error("代理配置失败: HTTPS代理格式不正确", 'system')
         return {"success": False, "message": "HTTPS代理格式不正确，请使用 https://ip:port 格式"}
     
     proxy_config["http_proxy"] = http_proxy.strip() if http_proxy else ""
@@ -2114,6 +2151,37 @@ def detect_docker_compose() -> dict:
         "needs_upgrade": needs_upgrade,
         "detection_source": detection_source,  # 标识最终在哪层执行拿到的结果
     }
+
+
+def get_compose_command() -> list:
+    """返回可读取容器内 Compose 文件的命令，优先 v2。"""
+    # Compose CLI 必须能读取 /app/repos 中的配置文件，因此不在宿主机 chroot 内执行。
+    candidates = (["docker", "compose"], ["docker-compose"])
+
+    for command in candidates:
+        try:
+            result = subprocess.run(
+                command + ["version"], capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0:
+                return command
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return []
+
+
+def get_host_compose_command() -> list:
+    """返回在宿主机根目录中执行的 Compose 命令，用于读取宿主机映射文件。"""
+    if not (Path("/host/usr/bin/docker").exists() or Path("/host/bin/docker").exists()):
+        return []
+    for command in (["chroot", "/host", "docker", "compose"], ["chroot", "/host", "docker-compose"]):
+        try:
+            result = subprocess.run(command + ["version"], capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                return command
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    return []
 
 
 def generate_compose_upgrade_script() -> str:
@@ -2359,7 +2427,7 @@ def get_docker_info():
         result = subprocess.run(["sh", "-c", server_fmt], capture_output=True, text=True, timeout=15)
         if result.returncode == 0 and result.stdout.strip():
             docker_version = result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
 
     # Server 端拿不到，就退到 Client 端（但这通常是容器内打包的客户端版本，不准但比空好）
@@ -2372,7 +2440,7 @@ def get_docker_info():
             result = subprocess.run(["sh", "-c", client_fmt], capture_output=True, text=True, timeout=15)
             if result.returncode == 0 and result.stdout.strip():
                 docker_version = result.stdout.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
     # 最后兜底：旧的 --version
@@ -2381,7 +2449,7 @@ def get_docker_info():
             result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 docker_version = result.stdout.strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
     if not docker_version:
@@ -2461,6 +2529,51 @@ def get_current_container_id() -> str:
     return ""
 
 
+def get_host_mapped_path(container_path: Path) -> Optional[Path]:
+    """将容器内路径反推为当前应用容器 bind mount 对应的宿主机绝对路径。"""
+    container_id = get_current_container_id()
+    if not container_id:
+        return None
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", container_id], capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return None
+        mounts = json.loads(result.stdout)[0].get("Mounts", [])
+        path = container_path.resolve()
+        candidates = []
+        for mount in mounts:
+            if mount.get("Type") != "bind" or not mount.get("Source") or not mount.get("Destination"):
+                continue
+            destination = Path(mount["Destination"])
+            try:
+                relative = path.relative_to(destination)
+            except ValueError:
+                continue
+            candidates.append((len(destination.parts), Path(mount["Source"]) / relative))
+        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, IndexError, json.JSONDecodeError):
+        return None
+
+
+def wait_for_docker_ready(timeout_seconds: int = 45, interval_seconds: int = 2) -> bool:
+    """等待 Docker daemon 恢复；仅检查 docker.sock 可用性，不修改宿主机状态。"""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            result = subprocess.run(
+                ["docker", "info", "--format", "{{.ServerVersion}}"],
+                capture_output=True, text=True, timeout=8,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+        time.sleep(interval_seconds)
+    return False
+
+
 def schedule_host_docker_restart(delay_seconds: int = 3) -> Dict:
     """安排重启宿主机 Docker 服务。
 
@@ -2527,7 +2640,7 @@ def schedule_host_docker_restart(delay_seconds: int = 3) -> Dict:
         }
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         return {"success": False, "message": f"创建 Docker 重启任务失败: {str(e)}"}
-    except (IndexError, json.JSONDecodeError, Exception) as e:
+    except (IndexError, json.JSONDecodeError, OSError, subprocess.SubprocessError) as e:
         return {"success": False, "message": f"创建 Docker 重启任务失败: {str(e)}"}
 
 
@@ -2587,7 +2700,7 @@ def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v
                                 scripts_dir_host = src
                                 resolved = True
                                 break
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
     # Fallback：推导失败时给出相对路径提示（用户通常在项目根目录执行）
@@ -2767,7 +2880,7 @@ def stream_host_metrics(cpu_interval_sec: float = 1.0, max_updates: int = 0):
 
             # CPU 采样已经带 sleep(cpu_interval_sec) 了，这里再补一个 50ms 避免极端情况下紧循环
             time.sleep(0.05)
-    except (GeneratorExit, Exception):
+    except (GeneratorExit, OSError, RuntimeError):
         # 客户端断开 SSE 连接时 FastAPI 会关闭生成器，这里静默退出
         return
 
@@ -2779,11 +2892,10 @@ def _run_on_host(cmd_str: str, timeout: int = 20) -> tuple:
     适用场景：docker compose version / docker-compose --version / which xxx 等
     依赖「宿主机上实际安装的可执行文件 + PATH + 配置」的命令。
 
-    四层 fallback（穿透能力从强到弱）：
-      1. chroot /host sh -c '<cmd>'        — 直接把根切到宿主机，二进制/路径全是宿主机的
-      2. nsenter mount+pid netns            — 进入宿主机的 mount 和 pid 命名空间
-      3. docker run docker:cli              — 基于 docker.sock 用官方 docker-cli 镜像跑 docker 子命令
-      4. 容器内本地执行（兜底）             — 拿到的是容器内版本，但至少有返回值
+    三层 fallback（穿透能力从强到弱）：
+    1. chroot /host sh -c '<cmd>'        — 直接把根切到宿主机，二进制/路径全是宿主机的
+    2. nsenter mount+pid netns            — 进入宿主机的 mount 和 pid 命名空间
+    3. 容器内本地执行（兜底）             — 拿到的是容器内版本，但至少有返回值
     """
     import os
 
@@ -2794,7 +2906,7 @@ def _run_on_host(cmd_str: str, timeout: int = 20) -> tuple:
             r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
             if r.returncode == 0 and (r.stdout or r.stderr):
                 return (r.returncode, r.stdout or "", r.stderr or "", "chroot")
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 2. nsenter 进入宿主机 mount+pid+uts+ipc+net (除了 user/cgroup 全进去)
@@ -2812,7 +2924,7 @@ def _run_on_host(cmd_str: str, timeout: int = 20) -> tuple:
             r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
             if r.returncode == 0 and (r.stdout or r.stderr):
                 return (r.returncode, r.stdout or "", r.stderr or "", "nsenter")
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 3. 容器内本地执行（兜底）—— 注：不再 fallback 到 docker run docker:cli
@@ -2821,7 +2933,7 @@ def _run_on_host(cmd_str: str, timeout: int = 20) -> tuple:
     try:
         r = subprocess.run(["sh", "-c", cmd_str], capture_output=True, text=True, timeout=timeout)
         return (r.returncode, r.stdout or "", r.stderr or "", "container-local")
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
         return (1, "", str(e), "container-local-failed")
 
 
@@ -2849,7 +2961,7 @@ def _run_in_host_net(cmd: list, timeout: int = 10) -> tuple:
             r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
             if r.returncode == 0 and r.stdout.strip():
                 return (r.returncode, r.stdout, r.stderr, "nsenter")
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 2. chroot /host（用 sh -c 包一层以便宿主机 PATH 解析）
@@ -2859,14 +2971,14 @@ def _run_in_host_net(cmd: list, timeout: int = 10) -> tuple:
             r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
             if r.returncode == 0 and r.stdout.strip():
                 return (r.returncode, r.stdout, r.stderr, "chroot")
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 3. 容器内直接执行（兜底）
     try:
         r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout)
         return (r.returncode, r.stdout or "", r.stderr or "", "container-local")
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
         return (1, "", str(e), "container-local-failed")
 
 
@@ -2900,7 +3012,7 @@ def get_default_interface() -> str:
             out = (r.stdout or "").strip()
             if r.returncode == 0 and out:
                 return out
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 2. chroot /host
@@ -2913,7 +3025,7 @@ def get_default_interface() -> str:
             out = (r.stdout or "").strip()
             if r.returncode == 0 and out:
                 return out
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     # 3. 容器本地执行（兜底）
@@ -2925,7 +3037,7 @@ def get_default_interface() -> str:
         out = (r.stdout or "").strip()
         if r.returncode == 0 and out:
             return out
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
     return ""
@@ -2994,7 +3106,6 @@ def get_host_system_info():
             st = os.statvfs("/host")
             block_size = st.f_frsize or st.f_bsize
             total_bytes = st.f_blocks * block_size
-            free_bytes  = st.f_bfree  * block_size
             avail_bytes = st.f_bavail * block_size
             used_bytes  = total_bytes - avail_bytes
             if total_bytes > 0:
@@ -3029,7 +3140,6 @@ def get_host_system_info():
                     # df -P 单位是 1K-blocks
                     total_k = int(parts[1])
                     used_k  = int(parts[2])
-                    avail_k = int(parts[3])
                     pct     = parts[4].replace('%', '')
                     if total_k > 0:
                         def _k2hr(k):
@@ -3356,8 +3466,7 @@ from .database import (
     get_all_backups,
     get_backups_by_container,
     delete_backup_by_id,
-    get_backup_by_id as db_get_backup_by_id,
-    update_backup_status
+    get_backup_by_id as db_get_backup_by_id
 )
 
 def get_container_mounts(container_id: str) -> list:
@@ -3684,8 +3793,6 @@ def restore_backup(backup_id: int) -> Dict:
             return {"success": False, "message": f"解压备份失败: {result.stderr}"}
         
         image_path = restore_dir / f"{container_name}-backup" / "image.tar"
-        config_path = restore_dir / f"{container_name}-backup" / "container-config.json"
-        
         if image_path.exists():
             result = subprocess.run(
                 ["docker", "load", "-i", str(image_path)],

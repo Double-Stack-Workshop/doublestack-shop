@@ -23,7 +23,6 @@ class LogService:
     def _ensure_db_initialized(self):
         if not self._db_initialized:
             try:
-                from .database import add_operation_log, get_operation_logs
                 self._db_initialized = True
             except Exception:
                 self._use_db = False

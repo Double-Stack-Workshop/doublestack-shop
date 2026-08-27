@@ -1,9 +1,15 @@
 import asyncio
+import os
 import json
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from .schemas import AddRepoRequest
+import time
+from fastapi import APIRouter, Cookie, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
+from .schemas import (
+    AddRepoRequest, CreateNetworkRequest, CurrentRepoRequest, DeployRequest,
+    DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
+    LoginRequest, ProxyRequest, PullImageRequest, RegisterRequest, CreateUserRequest,
+    SaveFileRequest, UpdatePasswordRequest,
+)
 from .terminal import terminal_manager
 from .version import VERSION, DOCKERHUB_REPO, BUILD_DATE
 from .services import (
@@ -51,6 +57,7 @@ from .services import (
     generate_compose_upgrade_script,
     resolve_host_scripts_dir,
     schedule_host_docker_restart,
+    wait_for_docker_ready,
 )
 from .database import get_all_deployments, get_deployed_apps_count, get_deployment_success_rate
 from .database import (
@@ -58,13 +65,16 @@ from .database import (
     verify_password,
     create_user,
     get_all_users,
-    get_user_by_email,
     update_user,
     delete_user,
     verify_admin_password,
     reset_admin_password,
     get_setting,
-    set_setting
+    set_setting,
+    create_user_session,
+    delete_user_session,
+    get_user_by_session,
+    password_hash_needs_upgrade,
 )
 from .logger import log_service
 
@@ -88,34 +98,50 @@ _SSE_HEADERS = {
     "Connection": "keep-alive",
 }
 
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_LOCK_SECONDS = 15 * 60
+_login_attempts = {}
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    email: str = None
+def _login_key(request: Request, username: str) -> tuple[str, str]:
+    return (request.client.host if request.client else "unknown", username.lower())
 
-class UpdatePasswordRequest(BaseModel):
-    password: str
 
-class CreateNetworkRequest(BaseModel):
-    name: str
-    driver: str = "bridge"
+def _is_login_locked(request: Request, username: str) -> bool:
+    attempts, locked_until = _login_attempts.get(_login_key(request, username), (0, 0))
+    if locked_until > time.time():
+        return True
+    if locked_until:
+        _login_attempts.pop(_login_key(request, username), None)
+    return False
+
+
+def _record_login_failure(request: Request, username: str) -> None:
+    key = _login_key(request, username)
+    attempts, locked_until = _login_attempts.get(key, (0, 0))
+    attempts += 1
+    _login_attempts[key] = (attempts, time.time() + _LOGIN_LOCK_SECONDS if attempts >= _LOGIN_MAX_ATTEMPTS else locked_until)
+
 
 @router.post("/login")
-async def login(request: LoginRequest):
-    user = get_user_by_username(request.username)
+async def login(request: Request, credentials: LoginRequest):
+    if _is_login_locked(request, credentials.username):
+        return {"success": False, "message": "登录尝试过多，请 15 分钟后再试"}
+
+    user = get_user_by_username(credentials.username)
     
     if not user:
-        log_service.warning(f"用户登录失败: {request.username} - 用户不存在", 'auth')
+        _record_login_failure(request, credentials.username)
+        log_service.warning(f"用户登录失败: {credentials.username} - 用户不存在", 'auth')
         return {"success": False, "message": "用户名或密码错误"}
     
-    if verify_password(request.password, user['password']):
-        log_service.success(f"用户登录成功: {request.username}", 'auth')
-        return {
+    if verify_password(credentials.password, user['password']):
+        if password_hash_needs_upgrade(user['password']):
+            update_user(credentials.username, password=credentials.password)
+        _login_attempts.pop(_login_key(request, credentials.username), None)
+        log_service.success(f"用户登录成功: {credentials.username}", 'auth')
+        token, max_age = create_user_session(user['id'])
+        response = JSONResponse(content={
             "success": True,
             "message": "登录成功",
             "data": {
@@ -124,15 +150,35 @@ async def login(request: LoginRequest):
                 "is_admin": user['is_admin'],
                 "created_at": user['created_at']
             }
-        }
+        })
+        response.set_cookie(
+            key="session_token",
+            value=token,
+            max_age=max_age,
+            httponly=True,
+            samesite="lax",
+            secure=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
+            path="/",
+        )
+        return response
     
-    log_service.warning(f"用户登录失败: {request.username} - 密码错误", 'auth')
+    _record_login_failure(request, credentials.username)
+    log_service.warning(f"用户登录失败: {credentials.username} - 密码错误", 'auth')
     return {"success": False, "message": "用户名或密码错误"}
 
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    admin_password: str
+
+@router.post("/logout")
+async def logout(session_token: str = Cookie(default=None)):
+    delete_user_session(session_token)
+    response = JSONResponse(content={"success": True, "message": "已退出登录"})
+    response.delete_cookie("session_token", path="/")
+    return response
+
+
+@router.get("/me")
+async def get_current_user(request: Request):
+    """返回由服务端会话确认的当前用户，前端不得自行推断管理员身份。"""
+    return {"success": True, "data": request.state.user}
 
 @router.post("/register")
 async def register(request: RegisterRequest):
@@ -147,9 +193,15 @@ async def register(request: RegisterRequest):
     log_service.warning(f"用户注册失败: {request.username} - 用户名已存在", 'auth')
     return {"success": False, "message": "用户名已存在"}
 
-class ForgotPasswordRequest(BaseModel):
-    admin_password: str
-    new_password: str
+
+@router.post("/users")
+async def create_user_endpoint(request: CreateUserRequest):
+    """由已登录管理员创建普通用户；权限由 HTTP 中间件统一校验。"""
+    if len(request.password) < 6:
+        raise HTTPException(status_code=422, detail="密码长度至少为 6 位")
+    if create_user(request.username, request.password, None, is_admin=False):
+        return {"success": True, "message": "用户添加成功"}
+    raise HTTPException(status_code=409, detail="用户名已存在")
 
 @router.post("/users/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest):
@@ -252,9 +304,6 @@ async def read_file_content(repo_name: str, file_name: str):
         return yml_content
     raise HTTPException(status_code=404, detail="文件不存在")
 
-class SaveFileRequest(BaseModel):
-    content: str
-
 @router.put("/repos/{repo_name}/files/{file_name}")
 async def update_file_content(repo_name: str, file_name: str, request: SaveFileRequest):
     if save_file_content(repo_name, file_name, request.content):
@@ -268,10 +317,6 @@ async def remove_repo(repo_name: str):
     if delete_repo(repo_name):
         return {"success": True, "message": "仓库已删除"}
     raise HTTPException(status_code=404, detail="仓库不存在")
-
-class DeployRequest(BaseModel):
-    repo_name: str
-    file_name: str
 
 @router.post("/deploy")
 async def deploy_application(request: DeployRequest):
@@ -296,6 +341,17 @@ async def get_containers_count():
     log_service.info("获取容器数量", 'query')
     count = get_running_containers_count()
     return {"count": count}
+
+
+@router.get("/dashboard/stats")
+async def get_dashboard_stats():
+    """向普通登录用户提供仪表盘所需的只读汇总数据。"""
+    return {
+        "repo_count": len(get_all_repos()),
+        "deployed_apps_count": get_deployed_apps_count(),
+        "container_count": get_running_containers_count(),
+        "success_rate": get_deployment_success_rate(),
+    }
 
 @router.get("/deployments")
 async def list_deployments(limit: int = 10):
@@ -576,9 +632,6 @@ async def list_images():
     images = get_all_images()
     return images
 
-class PullImageRequest(BaseModel):
-    image_name: str
-
 @router.post("/images/pull")
 async def pull_image_endpoint(request: PullImageRequest):
     """流式拉取镜像，返回 SSE 事件流。"""
@@ -602,6 +655,10 @@ async def search_images(query: str):
 
 @router.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):
+    user = get_user_by_session(websocket.cookies.get("session_token"))
+    if not user or not user["is_admin"]:
+        await websocket.close(code=1008, reason="需要管理员登录")
+        return
     await websocket.accept()
 
     cols = 80
@@ -614,15 +671,17 @@ async def websocket_terminal(websocket: WebSocket):
                 cols = msg.get('cols', 80)
                 rows = msg.get('rows', 24)
                 break
-    except:
-        pass
+    except (WebSocketDisconnect, ValueError):
+        # 客户端在首次尺寸协商前关闭时无需创建终端。
+        return
 
     try:
         await terminal_manager.create_host_terminal(websocket, cols, rows)
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except (WebSocketDisconnect, RuntimeError):
+            # 连接已断开，无法再向客户端报告终端创建错误。
             pass
         await websocket.close()
 
@@ -639,10 +698,6 @@ async def get_proxy():
     result = get_proxy_config()
     return {"success": True, "data": result}
 
-class ProxyRequest(BaseModel):
-    http_proxy: str = ""
-    https_proxy: str = ""
-
 @router.put("/proxy")
 async def update_proxy(request: ProxyRequest):
     """更新代理配置"""
@@ -655,9 +710,6 @@ async def get_current_repo_route():
     """获取当前系统仓库"""
     repo_name = get_current_repo()
     return {"success": True, "data": {"repo_name": repo_name}}
-
-class CurrentRepoRequest(BaseModel):
-    repo_name: str = ""
 
 @router.put("/current-repo")
 async def set_current_repo_route(request: CurrentRepoRequest):
@@ -680,9 +732,6 @@ async def get_global_domain():
     domain = get_setting("global_domain", "")
     return {"success": True, "data": {"global_domain": domain}}
 
-class GlobalDomainRequest(BaseModel):
-    global_domain: str = ""
-
 @router.put("/global-domain")
 async def update_global_domain(request: GlobalDomainRequest):
     """更新全局域名/IP配置"""
@@ -691,10 +740,43 @@ async def update_global_domain(request: GlobalDomainRequest):
     return {"success": True, "message": "配置已保存"}
 
 # Docker 加速源相关路由
-import json
 from pathlib import Path
 
 DAEMON_JSON_PATH = Path("/etc/docker/daemon.json")
+docker_restart_status = {"state": "idle", "message": "尚未执行 Docker 重启", "updated_at": None}
+
+
+def _write_daemon_config(config: dict) -> None:
+    """原子写入 Docker daemon 配置，避免服务读取到半截 JSON。"""
+    temp_path = DAEMON_JSON_PATH.with_suffix(".json.tmp")
+    with open(temp_path, 'w') as f:
+        json.dump(config, f, indent=2)
+    temp_path.replace(DAEMON_JSON_PATH)
+
+
+async def _monitor_docker_restart(previous_config: dict) -> None:
+    """确认 Docker 重启结果；无法恢复时回滚加速源并再次安排恢复重启。"""
+    global docker_restart_status
+    recovered = await asyncio.to_thread(wait_for_docker_ready)
+    docker_restart_status = {
+        "state": "ready" if recovered else "failed",
+        "message": "Docker 已恢复" if recovered else "Docker 未在限定时间内恢复，已回滚加速源配置",
+        "updated_at": time.time(),
+    }
+    if recovered:
+        log_service.success("Docker 重启完成，服务已恢复", 'system')
+        return
+
+    try:
+        _write_daemon_config(previous_config)
+        rollback = await asyncio.to_thread(schedule_host_docker_restart, 1)
+        docker_restart_status["rollback_scheduled"] = rollback["success"]
+        if not rollback["success"]:
+            docker_restart_status["message"] += f"；恢复重启任务创建失败：{rollback['message']}"
+        log_service.error(docker_restart_status["message"], 'system')
+    except (OSError, TypeError, ValueError) as exc:
+        docker_restart_status["message"] += f"；回滚失败：{exc}"
+        log_service.error(docker_restart_status["message"], 'system')
 
 @router.get("/docker-mirrors")
 async def get_docker_mirrors():
@@ -708,12 +790,9 @@ async def get_docker_mirrors():
                 return {"success": True, "mirrors": mirrors}
         else:
             return {"success": True, "mirrors": []}
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         log_service.error(f"获取 Docker 加速源配置失败: {str(e)}", 'system')
         return {"success": False, "message": f"读取配置失败: {str(e)}", "mirrors": []}
-
-class DockerMirrorsRequest(BaseModel):
-    mirrors: list[str]
 
 @router.put("/docker-mirrors")
 async def update_docker_mirrors(request: DockerMirrorsRequest):
@@ -725,25 +804,27 @@ async def update_docker_mirrors(request: DockerMirrorsRequest):
             with open(DAEMON_JSON_PATH, 'r') as f:
                 config = json.load(f)
         
+        previous_config = config.copy()
         # 更新加速源
         config["registry-mirrors"] = request.mirrors
         
-        # 原子写回配置，避免 Docker 在读取 daemon.json 时读到半截文件。
-        temp_path = DAEMON_JSON_PATH.with_suffix(".json.tmp")
-        with open(temp_path, 'w') as f:
-            json.dump(config, f, indent=2)
-        temp_path.replace(DAEMON_JSON_PATH)
+        _write_daemon_config(config)
 
         restart_result = await asyncio.to_thread(schedule_host_docker_restart)
         if not restart_result["success"]:
+            _write_daemon_config(previous_config)
             log_service.error(f"Docker 加速源已保存，但重启任务创建失败: {restart_result['message']}", 'system')
             return {
                 "success": False,
-                "message": f"加速源已保存，但未能自动重启 Docker：{restart_result['message']}",
-                "mirrors": request.mirrors,
-                "saved": True,
+                "message": f"未能创建 Docker 重启任务，已还原原加速源配置：{restart_result['message']}",
+                "mirrors": previous_config.get("registry-mirrors", []),
             }
         
+        docker_restart_status.update({
+            "state": "restarting", "message": "Docker 正在重启", "updated_at": time.time(),
+            "helper_container_id": restart_result.get("helper_container_id"),
+        })
+        asyncio.create_task(_monitor_docker_restart(previous_config))
         log_service.success(f"更新 Docker 加速源配置: {len(request.mirrors)} 个加速源", 'system')
         return {
             "success": True, 
@@ -753,9 +834,15 @@ async def update_docker_mirrors(request: DockerMirrorsRequest):
     except PermissionError:
         log_service.error("更新 Docker 加速源配置失败: 权限不足", 'system')
         return {"success": False, "message": "权限不足，请确保容器以正确权限运行"}
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
         log_service.error(f"更新 Docker 加速源配置失败: {str(e)}", 'system')
         return {"success": False, "message": f"保存配置失败: {str(e)}"}
+
+
+@router.get("/docker-mirrors/restart-status")
+async def get_docker_restart_status():
+    """返回最近一次加速源触发的 Docker 重启/回滚状态。"""
+    return {"success": True, **docker_restart_status}
 
 # 日志相关路由
 @router.get("/logs")
@@ -773,9 +860,6 @@ async def clear_logs():
     return {"success": True, "message": "日志已清空"}
 
 # ============ 容器备份相关路由 ============
-
-class CreateBackupRequest(BaseModel):
-    container_id: str
 
 @router.post("/containers/{container_id}/backup")
 async def create_backup_endpoint(container_id: str):

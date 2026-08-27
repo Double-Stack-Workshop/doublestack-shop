@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 function convertToUTC8(dateStr) {
     if (!dateStr) return '未知';
@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         let finalElapsed = 0;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/images/pull`, {
+            const response = await apiFetch(`${API_BASE_URL}/images/pull`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -242,25 +242,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('image');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('image');
 }
 
 async function loadImages() {
     try {
-        const response = await fetch(`${API_BASE_URL}/images`);
+        const response = await apiFetch(`${API_BASE_URL}/images`);
         const images = await response.json();
         
         const imageGrid = document.getElementById('imageGrid');
@@ -333,7 +320,7 @@ async function deleteImage(imageId, btn) {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>删除中</span>';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/images/${imageId}`, {
+        const response = await apiFetch(`${API_BASE_URL}/images/${imageId}`, {
             method: 'DELETE'
         });
         
@@ -383,7 +370,7 @@ async function searchDockerHub() {
     `;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/images/search?query=${encodeURIComponent(query)}`);
+        const response = await apiFetch(`${API_BASE_URL}/images/search?query=${encodeURIComponent(query)}`);
         const results = await response.json();
         
         if (!Array.isArray(results) || results.length === 0) {
@@ -459,29 +446,11 @@ function formatDate(timestamp) {
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    
-    if (!isAdmin) {
-        alert('您没有权限访问此页面');
-        window.location.href = '../dashboard/dashboard.html';
-        return false;
-    }
-    
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
+    window.AppPage.populateUsername();
 }
 
 const style = document.createElement('style');

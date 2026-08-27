@@ -2,6 +2,18 @@ const API_BASE_URL = '/api';
 
 document.addEventListener('DOMContentLoaded', function() {
     const loginForm = document.getElementById('loginForm');
+    const clearCacheBtn = document.getElementById('clearCacheBtn');
+
+    clearCacheBtn.addEventListener('click', async function () {
+        clearCacheBtn.disabled = true;
+        clearCacheBtn.textContent = '正在清理并刷新…';
+        try {
+            await window.AppCache.clearCacheAndReload();
+        } catch (error) {
+            showMessage('缓存清理失败，请手动刷新页面', 'error');
+            clearCacheBtn.disabled = false;
+        }
+    });
     
     loginForm.addEventListener('submit', async function(e) {
         e.preventDefault();

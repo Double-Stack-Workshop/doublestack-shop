@@ -42,7 +42,7 @@
                         <div class="select-item">
                             <label for="fileSelect">选择 YML 文件</label>
                             <div class="search-select-wrapper">
-                                <input type="text" id="fileSearch" class="form-input search-input" placeholder="搜索文件..." style="display: none;">
+                                <input type="text" id="fileSearch" class="form-input search-input is-hidden" placeholder="搜索文件...">
                                 <select id="fileSelect" class="form-select">
                                     <option value="">请先选择仓库</option>
                                 </select>
@@ -51,7 +51,7 @@
                     </div>
                 </div>
 
-                <div class="mode-section" id="modeSection" style="display: none;">
+                <div class="mode-section is-hidden" id="modeSection">
                     <div class="mode-tabs">
                         <button id="easyModeBtn" class="mode-tab active">
                             <i class="fas fa-smile"></i>
@@ -68,7 +68,7 @@
                     </div>
                 </div>
 
-                <div class="params-section" id="paramsSection" style="display: none;">
+                <div class="params-section is-hidden" id="paramsSection">
                     <div class="section-header">
                         <h2>配置参数提取</h2>
                     </div>
@@ -87,7 +87,7 @@
                     </div>
                 </div>
 
-                <div class="editor-section" id="editorSection" style="display: none;">
+                <div class="editor-section is-hidden" id="editorSection">
                     <div class="section-header">
                         <h2>配置内容</h2>
                     </div>
@@ -111,7 +111,7 @@
                     </div>
                 </div>
 
-                <div class="network-section" id="networkSection" style="display: none;">
+                <div class="network-section is-hidden" id="networkSection">
                     <div class="section-header">
                         <h2>创建自定义网络</h2>
                     </div>
@@ -218,280 +218,14 @@
                         </div>
                     </div>
                 </div>
-<style>
-.deploy-progress-panel {
-    background: #0f172a;
-    border-radius: 10px;
-    padding: 16px 18px;
-    margin: 0 0 20px 0;
-    color: #e2e8f0;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: visible;
-}
-.progress-summary {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding-bottom: 10px;
-    margin-bottom: 14px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-}
-.progress-summary-row { display: flex; gap: 10px; font-size: 13px; flex-wrap: wrap; min-width: 0; }
-.progress-summary-row .label { color: #94a3b8; }
-.progress-summary-row .value { color: #e2e8f0; font-weight: 600; word-break: break-all; }
-
-.stage-progress-item + .stage-progress-item { margin-top: 14px; }
-.stage-header {
-    display: flex;
-    align-items: center;
-    gap: 6px 8px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
-    font-size: 13px;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-}
-.stage-icon {
-    font-size: 14px;
-    width: 22px;
-    text-align: center;
-    flex-shrink: 0;
-}
-.stage-icon.pull { color: #60a5fa; }
-.stage-icon.up { color: #34d399; }
-.stage-name { color: #cbd5e1; font-weight: 500; flex: 1 1 auto; min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
-.stage-time { color: #94a3b8; font-family: Consolas, monospace; word-break: break-all; }
-.stage-percent { color: #f8fafc; font-weight: 600; font-family: Consolas, monospace; flex-shrink: 0; }
-
-.progress-bar {
-    width: 100%;
-    height: 8px;
-    border-radius: 6px;
-    background: rgba(148,163,184,0.15);
-    overflow: hidden;
-    box-sizing: border-box;
-}
-.progress-bar-fill {
-    width: 0%;
-    height: 100%;
-    border-radius: 6px;
-    background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
-    transition: width 0.35s ease;
-    min-width: 0;
-}
-.stage-progress-item[data-stage="up"] .progress-bar-fill {
-    background: linear-gradient(90deg, #34d399 0%, #10b981 100%);
-}
-.stage-detail {
-    margin-top: 5px;
-    font-size: 12px;
-    color: #94a3b8;
-    font-family: Consolas, Monaco, monospace;
-    min-height: 1em;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-    max-width: 100%;
-    box-sizing: border-box;
-}
-
-.log-item .log-time {
-    display: inline-block;
-    color: #7c8aa0;
-    font-family: Consolas, Monaco, monospace;
-    font-size: 11px;
-    margin-right: 8px;
-    opacity: 0.85;
-    min-width: 74px;
-    flex-shrink: 0;
-}
-.log-item > span:last-of-type {
-    display: inline-block;
-    flex: 1 1 auto;
-    min-width: 0;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-    box-sizing: border-box;
-    max-width: calc(100% - 14px - 82px); /* 图标14+gap10+time74 → 留给文字的剩余空间 */
-}
-@media (max-width: 720px) {
-    .deploy-progress-panel { padding: 12px 12px; }
-    .stage-header { font-size: 12px; }
-    .stage-percent { font-size: 12px; }
-}
-
-.network-section {
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: visible;
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-.network-create-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 18px;
-}
-.network-create-row {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-}
-.network-input-group {
-    flex: 1 1 220px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-}
-.network-input-group label {
-    font-size: 13px;
-    font-weight: 600;
-    color: #475569;
-}
-.form-input {
-    padding: 10px 14px;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 14px;
-    transition: border-color 0.2s;
-    box-sizing: border-box;
-    width: 100%;
-    font-family: inherit;
-}
-.form-input:focus {
-    outline: none;
-    border-color: #6366f1;
-}
-.form-select {
-    padding: 10px 14px;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 14px;
-    background: white;
-    transition: border-color 0.2s;
-    box-sizing: border-box;
-    width: 100%;
-    font-family: inherit;
-}
-.form-select:focus {
-    outline: none;
-    border-color: #6366f1;
-}
-.btn-info {
-    background: linear-gradient(135deg, #06b6d4 0%, #0ea5e9 100%);
-    color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    transition: transform 0.15s, box-shadow 0.2s;
-}
-.btn-info:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.35);
-}
-.btn-info:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-.btn-sm {
-    padding: 6px 14px;
-    font-size: 12px;
-}
-.network-message {
-    margin-top: 14px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 1.5;
-    word-break: break-word;
-}
-.network-message.success {
-    background: #ecfdf5;
-    color: #065f46;
-    border: 1px solid #a7f3d0;
-}
-.network-message.error {
-    background: #fef2f2;
-    color: #991b1b;
-    border: 1px solid #fecaca;
-}
-.network-list-container {
-    margin-top: 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    overflow: hidden;
-}
-.network-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    box-sizing: border-box;
-}
-.network-table thead {
-    background: #f1f5f9;
-}
-.network-table th,
-.network-table td {
-    padding: 10px 14px;
-    text-align: left;
-    border-bottom: 1px solid #e2e8f0;
-    word-break: break-word;
-}
-.network-table th {
-    font-weight: 600;
-    color: #475569;
-}
-.network-table tbody tr:last-child td {
-    border-bottom: none;
-}
-.network-table tbody tr:hover {
-    background: #f8fafc;
-}
-.network-table .empty-cell {
-    text-align: center;
-    color: #94a3b8;
-    padding: 24px 14px;
-    font-style: italic;
-}
-.network-table .driver-tag {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 500;
-    background: #e0e7ff;
-    color: #4338ca;
-}
-.network-table .driver-tag.host { background: #fef3c7; color: #92400e; }
-.network-table .driver-tag.bridge { background: #dbeafe; color: #1e40af; }
-.network-table .driver-tag.overlay { background: #fae8ff; color: #86198f; }
-.network-table .driver-tag.none { background: #f1f5f9; color: #475569; }
-@media (max-width: 720px) {
-    .network-section { padding: 14px; }
-    .network-create-row { gap: 10px; flex-direction: column; }
-    .network-input-group { max-width: 100% !important; }
-}
-</style>
             </div>
         </main>
     </div>
+    <script src="/src/components/common/page-common.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <script src="/src/pages/deploy/deploy-yaml.js"></script>
+    <script src="/src/pages/deploy/deploy-network.js"></script>
+    <script src="/src/pages/deploy/deploy-progress.js"></script>
     <script src="/src/pages/deploy/deploy.js"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@
 - **💾 备份恢复** - 容器完整备份（镜像+配置+数据卷），支持一键恢复和文件上传恢复；备份文件时间戳使用 UTC+8 时区
 - **🖼️ 镜像管理** - 查看本地镜像，支持删除镜像，检测 Docker Hub 最新版本，支持一键拉取更新
 - **📊 仪表盘** - 实时统计容器数量、备份状态等关键数据；展示宿主机系统信息（CPU、内存、磁盘、系统版本、网络）；展示 Docker/Docker Compose 版本信息；测试 GitHub 和 Docker Hub 连接性
-- **🔐 用户管理** - 支持多用户注册登录，找回密码功能
+- **🔐 用户管理** - 支持多用户注册登录、bcrypt 密码存储、可撤销会话与登录失败限流
 - **📝 操作日志** - 完整记录系统操作日志，支持按类型筛选查看
 - **⚙️ 系统设置** - 代理配置、全局域名/IP配置、Docker加速源等系统参数管理
 - **💡 容器推荐** - 推荐热门容器应用，一键部署，配套教程链接
@@ -74,7 +74,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.6
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.8
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -103,13 +103,13 @@ doublestack-shop/
 │   │   ├── schemas.py     # 数据模型
 │   │   └── terminal.py    # 终端服务
 │   ├── data/              # 数据配置文件
-│   ├── requirements.txt   # Python 依赖
-│   └── package.json       # 前端依赖配置
+│   └── requirements.txt   # Python 依赖
 └── frontend/
     └── src/
         ├── images/        # 图片资源
         ├── components/    # 公共组件
-        │   └── sidebar/   # 侧边栏组件
+        │   ├── sidebar/   # 侧边栏组件
+        │   └── common/    # 页面认证、请求与用户信息公共逻辑
         └── pages/         # 页面组件
             ├── login/     # 登录页面
             ├── register/  # 注册页面
@@ -132,10 +132,19 @@ doublestack-shop/
 - **前端**: 原生 HTML/CSS/JavaScript
 - **容器**: Docker + Docker Compose
 
+## 安全与运维说明
+
+- 所有管理 API 和 WebSocket 终端均要求登录；容器、部署、备份、设置等高风险操作仅限管理员。
+- 密码以 bcrypt 哈希保存。旧版密码会在成功登录后自动迁移；会话 Cookie 为 HttpOnly，服务端可撤销。
+- 如需从不同域名访问 API，请通过 `CORS_ORIGINS` 以逗号配置允许的准确来源；默认仅允许本机开发地址。
+- 部署命令会优先使用 `docker compose`，并在仅安装 v1 的环境回退到 `docker-compose`。
+- 保存 Docker 加速源会先原子写入配置并重启宿主机 Docker。页面会轮询恢复状态；若 Docker 未在限定时间内恢复，会回滚旧配置并安排恢复重启。该功能要求容器具备 Docker socket、宿主机命名空间与特权运行权限。
+
 ## 版本信息
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.0.8 | 2026-08-27 | 完成会话鉴权、bcrypt 密码迁移、管理员 API 与 WebSocket 权限校验；统一数据库事务与前端公共认证/请求逻辑；部署页改用 YAML 解析器并拆分部署流和网络模块；Docker 加速源增加重启恢复检测与回滚；新增 Ruff、ESLint、CI 和回归测试；新增前端缓存清理；修复登录 422、管理员添加用户、仪表盘快捷跳转、部署页仓库筛选/加载、Compose 文件宿主机映射路径解析及普通用户仪表盘权限显示问题。 |
 | v2.0.7 | 2026-08-22 | Docker 加速源保存后支持自动重启宿主机 Docker 服务；修复部署页高级模式无法保存和部署的问题；修复卷挂载路径包含连字符时显示被截断的问题； |
 | v2.0.6 | 2026-08-20 | 仪表盘逻辑及UI优化；Docker Compose 自动生成脚本，并提供运行指令；容器部署页面新增「网络管理」；Compose 部署新增 `name: doublestack-shop` 统一 Compose 项目名；容器日志获取修复并支持倒序显示；|
 | v2.0.5 | 2026-08-20 | 仓库策略更新；仓库管理新增「未同步」状态与筛选；修复仓库UI问题；设置页面新增 GitHub 项目地址；|

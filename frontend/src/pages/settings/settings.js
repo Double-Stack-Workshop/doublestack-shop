@@ -1,8 +1,8 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 
 async function loadVersion() {
     try {
-        const response = await fetch(`${API_BASE_URL}/system/version`);
+        const response = await apiFetch(`${API_BASE_URL}/system/version`);
         const result = await response.json();
         if (result.current_version) {
             document.getElementById('currentVersion').textContent = result.current_version;
@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 添加中...';
         
         try {
-            const response = await fetch(`${API_BASE_URL}/register`, {
+            const response = await apiFetch(`${API_BASE_URL}/users`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 loadUsers();
             } else {
                 const data = await response.json();
-                showMessage(data.detail || '添加失败', 'error');
+                showMessage(getErrorMessage(data, '添加失败'), 'error');
             }
         } catch (error) {
             showMessage('网络错误，请稍后重试', 'error');
@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
         
         try {
-            const response = await fetch(`${API_BASE_URL}/users/${username}`, {
+            const response = await apiFetch(`${API_BASE_URL}/users/${username}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
@@ -115,25 +115,12 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('settings');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('settings');
 }
 
 async function loadUsers() {
     try {
-        const response = await fetch(`${API_BASE_URL}/users`);
+        const response = await apiFetch(`${API_BASE_URL}/users`);
         if (response.ok) {
             const users = await response.json();
             renderUsers(users);
@@ -207,7 +194,7 @@ async function deleteUser(username) {
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/users/${username}`, {
+        const response = await apiFetch(`${API_BASE_URL}/users/${username}`, {
             method: 'DELETE'
         });
         
@@ -254,7 +241,7 @@ async function checkForUpdates() {
     statusEl.innerHTML = '';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/system/check-update`);
+        const response = await apiFetch(`${API_BASE_URL}/system/check-update`);
         const result = await response.json();
         
         if (result.success) {
@@ -279,34 +266,16 @@ async function checkForUpdates() {
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    
-    if (!isAdmin) {
-        alert('您没有权限访问此页面');
-        window.location.href = '../dashboard/dashboard.html';
-        return false;
-    }
-    
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
+    window.AppPage.populateUsername();
 }
 
 async function loadProxyConfig() {
     try {
-        const response = await fetch(`${API_BASE_URL}/proxy`);
+        const response = await apiFetch(`${API_BASE_URL}/proxy`);
         if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
@@ -321,7 +290,7 @@ async function loadProxyConfig() {
 
 async function loadGlobalDomain() {
     try {
-        const response = await fetch(`${API_BASE_URL}/global-domain`);
+        const response = await apiFetch(`${API_BASE_URL}/global-domain`);
         if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
@@ -342,7 +311,7 @@ async function saveProxyConfig() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/proxy`, {
+        const response = await apiFetch(`${API_BASE_URL}/proxy`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -373,7 +342,7 @@ async function saveGlobalDomain() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/global-domain`, {
+        const response = await apiFetch(`${API_BASE_URL}/global-domain`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -401,7 +370,7 @@ let dockerMirrors = [];
 
 async function loadDockerMirrors() {
     try {
-        const response = await fetch(`${API_BASE_URL}/docker-mirrors`);
+        const response = await apiFetch(`${API_BASE_URL}/docker-mirrors`);
         if (response.ok) {
             const result = await response.json();
             dockerMirrors = result.mirrors || [];
@@ -568,7 +537,7 @@ async function saveDockerMirrors() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存并重启中...';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/docker-mirrors`, {
+        const response = await apiFetch(`${API_BASE_URL}/docker-mirrors`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -579,8 +548,8 @@ async function saveDockerMirrors() {
         const result = await response.json();
         
         if (result.success) {
-            showMessage('配置已保存，Docker 正在重启；服务恢复后将自动刷新页面', 'success');
-            setTimeout(() => window.location.reload(), 10000);
+            showMessage('配置已保存，正在确认 Docker 服务恢复状态…', 'success');
+            await waitForDockerRestart();
         } else {
             showMessage(result.message || '保存或重启失败', result.saved ? 'info' : 'error');
         }
@@ -589,5 +558,48 @@ async function saveDockerMirrors() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-save"></i> 保存并重启 Docker';
+    }
+}
+
+function getErrorMessage(data, fallback) {
+    if (typeof data?.detail === 'string') return data.detail;
+    if (typeof data?.message === 'string') return data.message;
+    if (Array.isArray(data?.detail)) return data.detail.map((item) => item.msg).join('；');
+    return fallback;
+}
+
+async function waitForDockerRestart() {
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+        try {
+            const response = await apiFetch(`${API_BASE_URL}/docker-mirrors/restart-status`);
+            if (response.ok) {
+                const status = await response.json();
+                if (status.state === 'ready') {
+                    showMessage('Docker 已恢复，正在刷新页面', 'success');
+                    window.location.reload();
+                    return;
+                }
+                if (status.state === 'failed') {
+                    showMessage(status.message || 'Docker 恢复失败，配置已尝试回滚', 'error');
+                    return;
+                }
+            }
+        } catch (_error) {
+            // Docker 重启期间连接中断属于预期状态，继续轮询即可。
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    showMessage('尚未确认 Docker 恢复，请稍后刷新页面查看状态', 'error');
+}
+
+async function clearApplicationCache() {
+    const button = document.getElementById('clearCacheBtn');
+    button.disabled = true;
+    try {
+        await window.AppCache.clearCacheAndReload();
+    } catch (error) {
+        showMessage('缓存清理失败，请手动刷新页面', 'error');
+        button.disabled = false;
     }
 }

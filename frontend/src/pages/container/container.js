@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 let allContainers = [];
 let globalDomain = '';
 
@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 async function loadGlobalDomain() {
     try {
-        const response = await fetch(`${API_BASE_URL}/global-domain`);
+        const response = await apiFetch(`${API_BASE_URL}/global-domain`);
         if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
@@ -46,52 +46,20 @@ function getAccessUrl(container) {
 }
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('container');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('container');
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
-    
-    if (!isAdmin) {
-        const menuItems = document.querySelectorAll('.sidebar-nav li');
-        menuItems.forEach((item, index) => {
-            if (index > 0) {
-                item.style.display = 'none';
-            }
-        });
-    }
+    window.AppPage.populateUsername();
 }
 
 async function refreshContainers() {
     try {
-        const response = await fetch(`${API_BASE_URL}/containers`);
+        const response = await apiFetch(`${API_BASE_URL}/containers`);
         if (response.ok) {
             allContainers = await response.json();
             renderContainers(allContainers);
@@ -219,7 +187,7 @@ function showEmptyState() {
 
 async function showContainerDetail(containerId) {
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}`);
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}`);
         if (response.ok) {
             const container = await response.json();
             document.getElementById('modalTitle').textContent = `容器详情 - ${container.name}`;
@@ -273,7 +241,7 @@ async function startContainer(containerId) {
     if (!confirm('确定要启动此容器吗？')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}/start`, {
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}/start`, {
             method: 'POST'
         });
         if (response.ok) {
@@ -293,7 +261,7 @@ async function stopContainer(containerId) {
     if (!confirm('确定要停止此容器吗？')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}/stop`, {
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}/stop`, {
             method: 'POST'
         });
         if (response.ok) {
@@ -313,7 +281,7 @@ async function restartContainer(containerId) {
     if (!confirm('确定要重启此容器吗？')) return;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}/restart`, {
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}/restart`, {
             method: 'POST'
         });
         if (response.ok) {
@@ -376,7 +344,7 @@ async function showContainerLogs(containerId, containerName) {
 
 async function loadContainerLogs(containerId) {
     try {
-        const response = await fetch(`${API_BASE_URL}/containers/${containerId}/logs?tail=200`);
+        const response = await apiFetch(`${API_BASE_URL}/containers/${containerId}/logs?tail=200`);
         if (response.ok) {
             const data = await response.json();
             document.getElementById('logsContent').textContent = data.logs || '暂无日志';

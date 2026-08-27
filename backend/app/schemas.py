@@ -7,6 +7,66 @@ class AddRepoRequest(BaseModel):
     branch: str = "main"
     local_path: str
 
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    admin_password: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UpdatePasswordRequest(BaseModel):
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    admin_password: str
+    new_password: str
+
+
+class SaveFileRequest(BaseModel):
+    content: str
+
+
+class DeployRequest(BaseModel):
+    repo_name: str
+    file_name: str
+
+
+class CreateNetworkRequest(BaseModel):
+    name: str
+    driver: str = "bridge"
+
+
+class PullImageRequest(BaseModel):
+    image_name: str
+
+
+class ProxyRequest(BaseModel):
+    http_proxy: str = ""
+    https_proxy: str = ""
+
+
+class CurrentRepoRequest(BaseModel):
+    repo_name: str = ""
+
+
+class GlobalDomainRequest(BaseModel):
+    global_domain: str = ""
+
+
+class DockerMirrorsRequest(BaseModel):
+    mirrors: List[str]
+
 class YmlFile(BaseModel):
     name: str
     path: str

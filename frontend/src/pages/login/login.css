@@ -205,6 +205,19 @@ body {
     color: #ddd;
 }
 
+.clear-cache-btn {
+    width: 100%;
+    margin-top: 16px;
+    padding: 9px;
+    border: 1px solid #d8def5;
+    border-radius: 8px;
+    color: #5664aa;
+    background: #f7f8ff;
+    cursor: pointer;
+}
+
+.clear-cache-btn:hover { background: #ecefff; }
+
 .message {
     position: absolute;
     top: 20px;

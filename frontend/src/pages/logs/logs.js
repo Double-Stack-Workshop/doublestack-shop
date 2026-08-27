@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL, apiFetch } = window.AppPage;
 let allLogs = [];
 
 document.addEventListener('DOMContentLoaded', async function() {
@@ -13,52 +13,20 @@ document.addEventListener('DOMContentLoaded', async function() {
 });
 
 async function loadSidebar() {
-    const response = await fetch('/src/components/sidebar/sidebar.html');
-    const sidebarHtml = await response.text();
-    const appContainer = document.getElementById('appContainer');
-    appContainer.insertAdjacentHTML('afterbegin', sidebarHtml);
-    
-    const script = document.createElement('script');
-    script.src = '/src/components/sidebar/sidebar.js';
-    script.type = 'module';
-    script.onload = function() {
-        import('/src/components/sidebar/sidebar.js').then(({ initSidebar }) => {
-            initSidebar('logs');
-        });
-    };
-    document.head.appendChild(script);
+    return window.AppPage.loadSidebar('logs');
 }
 
 function checkLogin() {
-    const username = localStorage.getItem('username');
-    if (!username) {
-        window.location.href = '../login/login.html';
-        return false;
-    }
-    return true;
+    return window.AppPage.requireLogin();
 }
 
 function loadUserInfo() {
-    const username = localStorage.getItem('username');
-    const isAdmin = localStorage.getItem('is_admin') === 'true';
-    
-    if (username) {
-        document.getElementById('currentUsername').textContent = username;
-    }
-    
-    if (!isAdmin) {
-        const menuItems = document.querySelectorAll('.sidebar-nav li');
-        menuItems.forEach((item, index) => {
-            if (index > 0) {
-                item.style.display = 'none';
-            }
-        });
-    }
+    window.AppPage.populateUsername();
 }
 
 async function loadLogs() {
     try {
-        const response = await fetch(`${API_BASE_URL}/logs`);
+        const response = await apiFetch(`${API_BASE_URL}/logs`);
         if (response.ok) {
             const data = await response.json();
             allLogs = data.logs || [];
@@ -177,7 +145,7 @@ async function clearLogs() {
     }
     
     try {
-        const response = await fetch(`${API_BASE_URL}/logs`, {
+        const response = await apiFetch(`${API_BASE_URL}/logs`, {
             method: 'DELETE'
         });
         

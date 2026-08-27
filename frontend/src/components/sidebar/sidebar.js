@@ -16,8 +16,13 @@ export function initSidebar(currentPage) {
         }
     });
     
-    logoutBtn.addEventListener('click', function() {
+    logoutBtn.addEventListener('click', async function() {
         if (confirm('确定要退出登录吗？')) {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+            } catch (error) {
+                // 即使请求失败也清除界面状态，避免用户误以为仍处于登录状态。
+            }
             localStorage.removeItem('username');
             localStorage.removeItem('is_admin');
             localStorage.removeItem('remember');
