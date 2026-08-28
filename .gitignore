@@ -6,6 +6,14 @@ __pycache__/
 *.sqlite3
 data/
 repos/Compose-File/
+backend/repos/*
+!backend/repos/Compose-File
+backend/scripts/*
+backend/backup/*
+backend/logs/*
+!backend/logs/.gitkeep
+backend/image/*
+!backend/image/.gitkeep
 node_modules/
 .env
 *.log

@@ -328,6 +328,11 @@ body {
     overflow: hidden;
 }
 
+/* 首个列表紧跟统计区，间距与容器管理页保持一致。 */
+.stats-bar + .backups-grid {
+    margin-top: 0;
+}
+
 .filter-bar {
     display: flex;
     justify-content: space-between;
@@ -413,12 +418,20 @@ body {
 }
 
 .container-card.running {
-    border-left: 4px solid #22c55e;
+    border-left: 4px solid transparent;
 }
 
 .container-card.exited {
-    border-left: 4px solid #ef4444;
+    border-left: 4px solid transparent;
     opacity: 0.7;
+}
+
+.container-card.backed {
+    border-left-color: #22c55e;
+}
+
+.container-card.unbacked {
+    border-left-color: #f59e0b;
 }
 
 .container-info {
@@ -653,10 +666,22 @@ body {
 .status-badge {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
-    border-radius: 12px;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.status-badge i {
+    display: block;
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    font-size: 0;
 }
 
 .status-badge.running {

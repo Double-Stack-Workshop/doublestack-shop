@@ -1,6 +1,9 @@
 const { API_BASE_URL, apiFetch } = window.AppPage;
 
 let originalContent = '';
+let isDeploying = false;
+const deploymentQueue = [];
+let activeDeployment = null;
 
 function setSaveButtonsDisabled(disabled) {
     document.querySelectorAll('.deploy-save-btn').forEach(btn => {
@@ -114,10 +117,12 @@ async function loadYmlFiles(repoName, searchQuery = '') {
     
     select.innerHTML = '<option value="">请选择YML文件</option>';
     searchInput.value = searchQuery;
+    searchInput.disabled = true;
+    searchInput.placeholder = '请先选择仓库';
+    hideFileDropdown();
     allYmlFiles = [];
     
     if (!repoName) {
-        searchInput.style.display = 'none';
         return;
     }
     
@@ -130,48 +135,57 @@ async function loadYmlFiles(repoName, searchQuery = '') {
         
         allYmlFiles = files.filter(file => file.name.endsWith('.yml') || file.name.endsWith('.yaml'));
         
-        let filteredFiles = allYmlFiles;
-        if (searchQuery) {
-            filteredFiles = allYmlFiles.filter(file => 
-                file.name.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-        }
-        
-        filteredFiles.forEach(file => {
+        allYmlFiles.forEach(file => {
             const option = document.createElement('option');
             option.value = file.name;
             option.textContent = file.name;
             select.appendChild(option);
         });
         
-        searchInput.style.display = allYmlFiles.length > 0 ? 'block' : 'none';
+        searchInput.disabled = allYmlFiles.length === 0;
+        searchInput.placeholder = allYmlFiles.length > 0 ? '选择或搜索 YML 文件...' : '该仓库没有 YML 文件';
+        renderFileOptions(searchQuery);
         
         if (allYmlFiles.length === 0) {
             addLog('warning', '该仓库中没有找到YML文件');
-        } else if (searchQuery && filteredFiles.length === 0) {
-            addLog('warning', `未找到匹配 "${searchQuery}" 的文件`);
         }
     } catch (error) {
         console.error('Error loading files:', error);
         addLog('error', '获取文件列表失败: ' + error.message);
-        searchInput.style.display = 'none';
+        searchInput.disabled = true;
+        searchInput.placeholder = '获取文件列表失败';
     }
 }
 
-function filterFiles(searchText) {
-    const select = document.getElementById('fileSelect');
-    select.innerHTML = '<option value="">请选择YML文件</option>';
-    
-    const filteredFiles = allYmlFiles.filter(file => 
-        file.name.toLowerCase().includes(searchText.toLowerCase())
-    );
-    
-    filteredFiles.forEach(file => {
-        const option = document.createElement('option');
-        option.value = file.name;
-        option.textContent = file.name;
-        select.appendChild(option);
-    });
+function renderFileOptions(searchText = '') {
+    const dropdown = document.getElementById('fileDropdown');
+    const normalizedSearch = searchText.trim().toLowerCase();
+    const filteredFiles = allYmlFiles.filter(file => file.name.toLowerCase().includes(normalizedSearch));
+
+    dropdown.innerHTML = filteredFiles.length > 0
+        ? filteredFiles.map(file => `<button type="button" class="file-option" role="option" data-file="${file.name}"><i class="fas fa-file-code"></i><span>${file.name}</span></button>`).join('')
+        : '<div class="file-option-empty">未找到匹配的 YML 文件</div>';
+}
+
+function showFileDropdown() {
+    const searchInput = document.getElementById('fileSearch');
+    const dropdown = document.getElementById('fileDropdown');
+    if (searchInput.disabled) return;
+    renderFileOptions(searchInput.value);
+    dropdown.classList.remove('is-hidden');
+}
+
+function hideFileDropdown() {
+    const dropdown = document.getElementById('fileDropdown');
+    if (dropdown) dropdown.classList.add('is-hidden');
+}
+
+function selectYmlFile(fileName) {
+    const fileSelect = document.getElementById('fileSelect');
+    document.getElementById('fileSearch').value = fileName;
+    fileSelect.value = fileName;
+    hideFileDropdown();
+    loadFileContent(document.getElementById('repoSelect').value, fileName);
 }
 
 async function loadFileContent(repoName, fileName) {
@@ -196,6 +210,7 @@ async function loadFileContent(repoName, fileName) {
         editorSection.style.display = 'none';
         const _ns1 = document.getElementById('networkSection');
         if (_ns1) _ns1.style.display = 'none';
+        document.getElementById('deployQueuePanel').classList.add('is-hidden');
         outputSection.style.display = 'none';
         return;
     }
@@ -235,6 +250,7 @@ async function loadFileContent(repoName, fileName) {
         if (_eBtn) _eBtn.classList.add('active');
         if (_aBtn) _aBtn.classList.remove('active');
         if (_nBtn) _nBtn.classList.remove('active');
+        document.getElementById('deployQueuePanel').classList.remove('is-hidden');
         outputSection.style.display = 'block';
         
         addLog('info', `已加载文件: ${fileName}`);
@@ -247,6 +263,7 @@ async function loadFileContent(repoName, fileName) {
         modeSection.style.display = 'none';
         const _ns2 = document.getElementById('networkSection');
         if (_ns2) _ns2.style.display = 'none';
+        document.getElementById('deployQueuePanel').classList.add('is-hidden');
         outputSection.style.display = 'none';
     }
 }
@@ -506,13 +523,61 @@ function finishDeployFlow(finalResult) {
     });
 }
 
-async function deployApplication(repoName, fileName) {
+function renderDeploymentQueue() {
+    const panel = document.getElementById('deployQueuePanel');
+    const summary = document.getElementById('deployQueueSummary');
+    const items = document.getElementById('deployQueueItems');
+    if (!panel || !summary || !items) return;
+
+    const queuedLabel = deploymentQueue.length > 0 ? `等待 ${deploymentQueue.length} 项` : '队列为空';
+    summary.textContent = isDeploying ? `正在部署，${queuedLabel}` : queuedLabel;
+    const activeItem = activeDeployment
+        ? `<div class="deploy-queue-item active"><i class="fas fa-spinner fa-spin"></i><span>${activeDeployment.fileName}</span><small>${activeDeployment.repoName}</small><b>部署中</b></div>`
+        : '';
+    const waitingItems = deploymentQueue.map((task, index) =>
+        `<div class="deploy-queue-item"><span class="queue-index">${index + 1}</span><span>${task.fileName}</span><small>${task.repoName}</small><b>等待中</b></div>`
+    ).join('');
+    items.innerHTML = activeItem || waitingItems ? activeItem + waitingItems : '';
+}
+
+function deployApplication(repoName, fileName) {
+    if (!repoName || !fileName) {
+        addLog('warning', '请先选择仓库和 YML 文件');
+        return;
+    }
+
+    const task = { repoName, fileName };
+    deploymentQueue.push(task);
+    const outputSection = document.getElementById('outputSection');
+    if (outputSection) outputSection.style.display = 'block';
+
+    if (isDeploying) {
+        addLog('info', `已加入部署队列: ${fileName}`);
+    }
+    renderDeploymentQueue();
+    void processDeploymentQueue();
+}
+
+async function processDeploymentQueue() {
+    if (isDeploying) return;
+
+    while (deploymentQueue.length > 0) {
+        activeDeployment = deploymentQueue.shift();
+        isDeploying = true;
+        renderDeploymentQueue();
+        await executeDeployment(activeDeployment.repoName, activeDeployment.fileName);
+        activeDeployment = null;
+        isDeploying = false;
+        renderDeploymentQueue();
+    }
+}
+
+async function executeDeployment(repoName, fileName) {
     const outputSection = document.getElementById('outputSection');
     if (outputSection) outputSection.style.display = 'block';
     resetDeployProgressPanel();
 
     try {
-        setDeployButtonsDisabled(true);
         addLog('info', `开始部署应用: ${fileName}`);
 
         const response = await apiFetch(`${API_BASE_URL}/deploy`, {
@@ -567,7 +632,7 @@ async function deployApplication(repoName, fileName) {
         const st = document.getElementById('deployStatus');
         if (st) { st.textContent = '异常'; st.style.color = '#f87171'; }
     } finally {
-        setDeployButtonsDisabled(false);
+        // 队列处理期间保持部署按钮可用，用户可继续添加下一项任务。
     }
 }
 
@@ -709,7 +774,9 @@ function setupEventListeners() {
         originalContent = '';
         setSaveButtonsDisabled(true);
         setDeployButtonsDisabled(true);
+        document.getElementById('deployQueuePanel').classList.add('is-hidden');
         const searchInput = document.getElementById('fileSearch');
+        searchInput.value = '';
         loadYmlFiles(this.value, searchInput.value);
     });
     
@@ -753,7 +820,31 @@ function setupEventListeners() {
     
     const fileSearch = document.getElementById('fileSearch');
     fileSearch.addEventListener('input', function() {
-        filterFiles(this.value);
+        renderFileOptions(this.value);
+        showFileDropdown();
+    });
+    fileSearch.addEventListener('focus', showFileDropdown);
+    fileSearch.addEventListener('click', showFileDropdown);
+
+    document.getElementById('filePickerToggle').addEventListener('click', function() {
+        const dropdown = document.getElementById('fileDropdown');
+        if (dropdown.classList.contains('is-hidden')) {
+            fileSearch.focus();
+            showFileDropdown();
+        } else {
+            hideFileDropdown();
+        }
+    });
+
+    document.getElementById('fileDropdown').addEventListener('mousedown', function(event) {
+        const option = event.target.closest('.file-option');
+        if (!option) return;
+        event.preventDefault();
+        selectYmlFile(option.dataset.file);
+    });
+
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.search-select-wrapper')) hideFileDropdown();
     });
     
     const easyModeBtn = document.getElementById('easyModeBtn');

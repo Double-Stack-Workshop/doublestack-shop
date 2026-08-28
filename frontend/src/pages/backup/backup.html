@@ -77,6 +77,14 @@
 
                 <section class="backups-grid">
                     <div class="filter-bar">
+                        <div class="filter-group">
+                            <label for="statusFilter">状态筛选:</label>
+                            <select id="statusFilter" onchange="filterContainers()">
+                                <option value="all">全部</option>
+                                <option value="running">运行中</option>
+                                <option value="exited">已停止</option>
+                            </select>
+                        </div>
                         <div class="search-box">
                             <i class="fas fa-search"></i>
                             <input type="text" id="searchInput" placeholder="搜索容器名称..." onkeyup="filterContainers()">

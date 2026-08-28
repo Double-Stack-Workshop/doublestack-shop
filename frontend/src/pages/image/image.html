@@ -113,48 +113,87 @@
             </header>
             
             <div class="content-area">
-                <section class="search-bar">
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="searchInput" placeholder="搜索镜像...">
-                    </div>
-                    <button id="pullImageBtn" class="add-btn">
-                        <i class="fas fa-download"></i>
-                        <span>拉取镜像</span>
-                    </button>
-                    <button id="searchDockerHubBtn" class="add-btn secondary">
-                        <i class="fab fa-docker"></i>
-                        <span>DockerHub</span>
-                    </button>
-                </section>
-                
                 <section class="image-stats">
                     <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fab fa-docker"></i>
-                        </div>
+                        <div class="stat-icon local"><i class="fab fa-docker"></i></div>
                         <div class="stat-info">
                             <div class="stat-value" id="imageCount">0</div>
                             <div class="stat-label">本地镜像</div>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-hdd"></i>
-                        </div>
+                        <div class="stat-icon storage"><i class="fas fa-hdd"></i></div>
                         <div class="stat-info">
                             <div class="stat-value" id="totalSize">0 B</div>
-                            <div class="stat-label">占用空间</div>
+                            <div class="stat-label">镜像总大小</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon running"><i class="fas fa-play"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="runningImageCount">0</div>
+                            <div class="stat-label">运行镜像</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon inactive"><i class="fas fa-pause"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="inactiveImageCount">0</div>
+                            <div class="stat-label">未运行镜像</div>
                         </div>
                     </div>
                 </section>
-                
+
+                <section class="image-actions-card">
+                    <div class="image-action-bar">
+                        <button id="pullImageBtn" class="add-btn">
+                            <i class="fas fa-download"></i>
+                            <span>拉取镜像</span>
+                        </button>
+                        <button id="searchDockerHubBtn" class="add-btn">
+                            <i class="fab fa-docker"></i>
+                            <span>DockerHub</span>
+                        </button>
+                    </div>
+                </section>
+
                 <section class="image-list">
+                    <div class="search-bar">
+                        <div class="filter-group">
+                            <label for="statusFilter">状态筛选:</label>
+                            <select id="statusFilter">
+                                <option value="all">全部</option>
+                                <option value="running">运行中</option>
+                                <option value="inactive">未运行</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchInput" placeholder="搜索镜像...">
+                        </div>
+                    </div>
                     <div class="image-grid" id="imageGrid">
                         <div class="empty-state">
                             <i class="fas fa-image"></i>
                             <p>暂无镜像，点击右上角拉取镜像</p>
                         </div>
+                    </div>
+                </section>
+
+                <section class="image-import-section">
+                    <div class="image-import-content">
+                        <div class="image-import-upload" id="imageImportUpload" onclick="document.getElementById('imageArchiveInput').click()">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <p>点击或拖拽上传 .tar 镜像文件</p>
+                            <input id="imageArchiveInput" type="file" accept=".tar,application/x-tar">
+                        </div>
+                        <div class="image-import-info" id="imageImportInfo" style="display: none;">
+                            <div class="info-row"><span class="info-label">文件名</span><span class="info-value" id="imageArchiveName">-</span></div>
+                            <div class="info-row"><span class="info-label">文件大小</span><span class="info-value" id="imageArchiveSize">-</span></div>
+                        </div>
+                        <button class="image-import-submit" id="imageImportSubmit" type="button" disabled>
+                            <i class="fas fa-file-import"></i> 开始导入
+                        </button>
                     </div>
                 </section>
             </div>

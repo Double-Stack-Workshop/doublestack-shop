@@ -156,7 +156,7 @@ body {
 
 .stats-bar {
     display: flex;
-    gap: 20px;
+    gap: 16px;
     padding: 20px 30px;
 }
 
@@ -164,21 +164,21 @@ body {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 20px;
-    padding: 25px;
+    gap: 16px;
+    padding: 20px;
     background: white;
     border-radius: 16px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
 .stat-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 22px;
     color: white;
 }
 
@@ -200,13 +200,13 @@ body {
 }
 
 .stat-value {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 700;
     color: #1e293b;
 }
 
 .stat-label {
-    font-size: 14px;
+    font-size: 13px;
     color: #64748b;
     margin-top: 4px;
 }
@@ -387,11 +387,22 @@ body {
 .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
+    gap: 4px;
+    padding: 4px 10px;
     border-radius: 20px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.status-badge i {
+    display: block;
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    font-size: 0;
 }
 
 .status-badge.running {

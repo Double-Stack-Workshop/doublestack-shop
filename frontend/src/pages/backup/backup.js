@@ -38,7 +38,7 @@ async function loadContainers() {
         allContainers = [];
     }
     updateStats();
-    renderContainers(allContainers);
+    filterContainers();
 }
 
 function updateStats() {
@@ -70,7 +70,7 @@ async function refreshBackups() {
         allBackups = [];
     }
     updateStats();
-    renderContainers(allContainers);
+    filterContainers();
 }
 
 function formatStorage(bytes) {
@@ -82,9 +82,14 @@ function formatStorage(bytes) {
 }
 
 function filterContainers() {
+    const status = document.getElementById('statusFilter').value;
     const searchQuery = document.getElementById('searchInput').value.toLowerCase();
     
     let filtered = allContainers;
+
+    if (status !== 'all') {
+        filtered = filtered.filter(container => container.state === status);
+    }
     
     if (searchQuery) {
         filtered = filtered.filter(c => 
@@ -110,7 +115,7 @@ function renderContainers(containers) {
         const lastBackup = allBackups.filter(b => b.container_name === container.name).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
         
         return `
-        <div class="container-card ${container.state === 'running' ? 'running' : 'exited'}">
+        <div class="container-card ${container.state === 'running' ? 'running' : 'exited'} ${hasBackup ? 'backed' : 'unbacked'}">
             <div class="container-info">
                 <div class="container-icon">
                     <i class="fab fa-docker"></i>
@@ -127,9 +132,6 @@ function renderContainers(containers) {
                 <span class="status-badge ${container.state === 'running' ? 'running' : 'exited'}">
                     <i class="fas fa-circle"></i>
                     ${container.state === 'running' ? '运行中' : '已停止'}
-                </span>
-                <span style="font-size: 13px; color: #6b7280;">
-                    ${hasBackup ? `<i class="fas fa-check-circle" style="color: #22c55e;"></i> 已备份` : `<i class="fas fa-times-circle" style="color: #f59e0b;"></i> 未备份`}
                 </span>
             </div>
             <div class="container-actions">

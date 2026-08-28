@@ -1,4 +1,5 @@
 const { API_BASE_URL, apiFetch } = window.AppPage;
+let selectedImageArchive = null;
 
 function convertToUTC8(dateStr) {
     if (!dateStr) return '未知';
@@ -23,10 +24,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
     
     const pullImageBtn = document.getElementById('pullImageBtn');
+    const imageArchiveInput = document.getElementById('imageArchiveInput');
+    const imageImportSubmit = document.getElementById('imageImportSubmit');
     const searchDockerHubBtn = document.getElementById('searchDockerHubBtn');
     const pullImageModal = document.getElementById('pullImageModal');
     const dockerHubModal = document.getElementById('dockerHubModal');
     const pullImageForm = document.getElementById('pullImageForm');
+    const statusFilter = document.getElementById('statusFilter');
     const searchInput = document.getElementById('searchInput');
     const dockerHubSearch = document.getElementById('dockerHubSearch');
     const searchBtn = document.getElementById('searchBtn');
@@ -37,6 +41,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     pullImageBtn.addEventListener('click', function() {
         pullImageModal.classList.add('active');
     });
+
+    imageArchiveInput.addEventListener('change', handleImageArchiveSelect);
+    imageImportSubmit.addEventListener('click', importImageArchive);
     
     searchDockerHubBtn.addEventListener('click', function() {
         dockerHubModal.classList.add('active');
@@ -223,20 +230,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    searchInput.addEventListener('input', function(e) {
-        const searchTerm = e.target.value.toLowerCase();
-        const imageCards = document.querySelectorAll('.image-card');
-        
-        imageCards.forEach(card => {
-            const imageName = card.querySelector('.image-info h3').textContent.toLowerCase();
-            
-            if (imageName.includes(searchTerm)) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-    });
+    searchInput.addEventListener('input', filterImages);
+    statusFilter.addEventListener('change', filterImages);
     
     loadImages();
 });
@@ -247,8 +242,14 @@ async function loadSidebar() {
 
 async function loadImages() {
     try {
-        const response = await apiFetch(`${API_BASE_URL}/images`);
-        const images = await response.json();
+        const [imagesResponse, containersResponse] = await Promise.all([
+            apiFetch(`${API_BASE_URL}/images`),
+            apiFetch(`${API_BASE_URL}/containers`),
+        ]);
+        if (!imagesResponse.ok) throw new Error(`HTTP ${imagesResponse.status}`);
+
+        const images = await imagesResponse.json();
+        const containers = containersResponse.ok ? await containersResponse.json() : [];
         
         const imageGrid = document.getElementById('imageGrid');
         const imageCount = document.getElementById('imageCount');
@@ -258,11 +259,13 @@ async function loadImages() {
             imageGrid.innerHTML = `
                 <div class="empty-state">
                     <i class="fab fa-docker"></i>
-                    <p>暂无镜像，点击右上角拉取镜像</p>
+                    <p>暂无镜像，点击右上角拉取或导入镜像</p>
                 </div>
             `;
             imageCount.textContent = '0';
             totalSize.textContent = '0 B';
+            document.getElementById('runningImageCount').textContent = '0';
+            document.getElementById('inactiveImageCount').textContent = '0';
             return;
         }
         
@@ -270,44 +273,152 @@ async function loadImages() {
         
         const totalBytes = images.reduce((sum, img) => sum + (img.size || 0), 0);
         totalSize.textContent = formatSize(totalBytes);
+
+        const imagesWithStatus = images.map(image => ({
+            ...image,
+            runningContainerCount: getRunningContainerCount(image, containers),
+        }));
+        const runningImages = imagesWithStatus.filter(image => image.runningContainerCount > 0).length;
+        document.getElementById('runningImageCount').textContent = runningImages;
+        document.getElementById('inactiveImageCount').textContent = images.length - runningImages;
         
-        imageGrid.innerHTML = images.map(image => `
-            <div class="image-card" data-id="${image.id}">
-                <div class="image-header">
-                    <div class="image-icon">
-                        <i class="fab fa-docker"></i>
-                    </div>
-                    <div class="image-info">
+        imageGrid.innerHTML = imagesWithStatus.map(image => `
+            <div class="image-card ${image.runningContainerCount > 0 ? 'running' : 'inactive'}" data-id="${image.id}" data-state="${image.runningContainerCount > 0 ? 'running' : 'inactive'}">
+                <div class="image-info">
+                    <div class="image-icon"><i class="fab fa-docker"></i></div>
+                    <div class="image-details">
                         <h3>${image.name || image.repo_tags?.[0] || 'unknown'}</h3>
-                        <p>${image.id?.substring(0, 12)}...</p>
+                        <p>
+                            <span><i class="fas fa-hashtag"></i> ${image.id?.substring(0, 12) || 'unknown'}</span>
+                            <span><i class="fas fa-tag"></i> ${image.repo_tags?.[0] || image.tag || '未标记'}</span>
+                            <span><i class="fas fa-hdd"></i> ${formatSize(image.size)}</span>
+                            <span><i class="fas fa-calendar"></i> ${convertToUTC8(image.created_at || image.created_since) || '未知'}</span>
+                        </p>
                     </div>
                 </div>
-                <div class="image-tags">
-                    ${(image.repo_tags || []).slice(0, 3).map(tag => `<span class="tag-item">${tag}</span>`).join('')}
-                    ${(image.repo_tags?.length || 0) > 3 ? `<span class="tag-item">+${(image.repo_tags.length - 3)} more</span>` : ''}
-                </div>
-                <div class="image-meta">
-                    <div class="meta-item">
-                        <i class="fas fa-hdd"></i>
-                        <span>${formatSize(image.size)}</span>
-                    </div>
-                    <div class="meta-item">
-                        <i class="fas fa-calendar"></i>
-                        <span>${convertToUTC8(image.created_at || image.created_since) || '未知'}</span>
-                    </div>
+                <div class="image-state">
+                    <span class="image-state-badge ${image.runningContainerCount > 0 ? 'running' : 'inactive'}">
+                        <i class="fas fa-circle"></i>
+                        ${image.runningContainerCount > 0 ? '运行中' : '未运行'}
+                    </span>
                 </div>
                 <div class="image-actions">
-                    <button class="action-btn delete-btn" onclick="deleteImage('${image.id}', this)">
+                    <button class="action-btn export-btn" title="导出镜像" onclick="exportImage('${image.id}', this)">
+                        <i class="fas fa-file-export"></i>
+                        <span>导出</span>
+                    </button>
+                    <button class="action-btn delete-btn" title="删除镜像" onclick="deleteImage('${image.id}', this)">
                         <i class="fas fa-trash"></i>
                         <span>删除</span>
                     </button>
                 </div>
             </div>
         `).join('');
+        filterImages();
     } catch (error) {
         console.error('加载镜像失败:', error);
         showMessage('加载镜像列表失败，请检查后端服务', 'error');
     }
+}
+
+function getRunningContainerCount(image, containers) {
+    const imageReferences = new Set([image.name, ...(image.repo_tags || [])].filter(Boolean));
+    return containers.filter(container =>
+        container.state === 'running' && imageReferences.has(container.image)
+    ).length;
+}
+
+function handleImageArchiveSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.tar')) {
+        showMessage('请选择 .tar 格式的 Docker 镜像包', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    selectedImageArchive = file;
+    document.getElementById('imageArchiveName').textContent = file.name;
+    document.getElementById('imageArchiveSize').textContent = formatSize(file.size);
+    document.getElementById('imageImportUpload').style.display = 'none';
+    document.getElementById('imageImportInfo').style.display = 'block';
+    document.getElementById('imageImportSubmit').disabled = false;
+}
+
+async function importImageArchive() {
+    if (!selectedImageArchive) return;
+
+    const button = document.getElementById('imageImportSubmit');
+    const originalContent = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 导入中...';
+    try {
+        const formData = new FormData();
+        formData.append('file', selectedImageArchive);
+        const response = await apiFetch(`${API_BASE_URL}/images/import`, {
+            method: 'POST',
+            body: formData,
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || result.message || `HTTP ${response.status}`);
+        showMessage(result.message || '镜像导入成功', 'success');
+        resetImageImportArea();
+        await loadImages();
+    } catch (error) {
+        showMessage(error.message || '镜像导入失败', 'error');
+    } finally {
+        button.innerHTML = originalContent;
+        button.disabled = !selectedImageArchive;
+    }
+}
+
+function resetImageImportArea() {
+    selectedImageArchive = null;
+    document.getElementById('imageArchiveInput').value = '';
+    document.getElementById('imageImportUpload').style.display = 'block';
+    document.getElementById('imageImportInfo').style.display = 'none';
+}
+
+function filterImages() {
+    const status = document.getElementById('statusFilter').value;
+    const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('.image-card').forEach(card => {
+        const imageName = card.querySelector('.image-info h3').textContent.toLowerCase();
+        const matchesStatus = status === 'all' || card.dataset.state === status;
+        card.style.display = matchesStatus && imageName.includes(searchTerm) ? 'flex' : 'none';
+    });
+}
+
+async function exportImage(imageId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>导出中</span>';
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/images/${encodeURIComponent(imageId)}/export`);
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail || `HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        const filename = getDownloadFilename(response.headers.get('Content-Disposition')) || 'docker-image.tar';
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(link.href);
+        showMessage('镜像已保存到 image 目录，并开始下载', 'success');
+    } catch (error) {
+        showMessage(error.message || '镜像导出失败', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-file-export"></i><span>导出</span>';
+    }
+}
+
+function getDownloadFilename(contentDisposition) {
+    const match = /filename="?([^";]+)"?/i.exec(contentDisposition || '');
+    return match ? match[1] : null;
 }
 
 async function deleteImage(imageId, btn) {
@@ -335,7 +446,7 @@ async function deleteImage(imageId, btn) {
                 imageGrid.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-image"></i>
-                        <p>暂无镜像，点击右上角拉取镜像</p>
+                        <p>暂无镜像，点击右上角拉取或导入镜像</p>
                     </div>
                 `;
             }

@@ -29,20 +29,26 @@
             </header>
             
             <div class="content-area">
-                <section class="search-bar">
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="searchInput" placeholder="搜索仓库...">
+                <section class="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-icon total"><i class="fab fa-github"></i></div>
+                        <div class="stat-info"><span class="stat-value" id="totalRepoCount">0</span><span class="stat-label">总仓库</span></div>
                     </div>
-                    <div class="filter-box">
-                        <select id="filterSelect">
-                            <option value="all">全部状态</option>
-                            <option value="active">已同步</option>
-                            <option value="syncing">同步中</option>
-                            <option value="pending">未同步</option>
-                            <option value="error">同步失败</option>
-                        </select>
+                    <div class="stat-item">
+                        <div class="stat-icon synced"><i class="fas fa-check"></i></div>
+                        <div class="stat-info"><span class="stat-value" id="syncedRepoCount">0</span><span class="stat-label">已同步仓库</span></div>
                     </div>
+                    <div class="stat-item">
+                        <div class="stat-icon pending"><i class="fas fa-clock"></i></div>
+                        <div class="stat-info"><span class="stat-value" id="pendingRepoCount">0</span><span class="stat-label">未同步仓库</span></div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-icon failed"><i class="fas fa-triangle-exclamation"></i></div>
+                        <div class="stat-info"><span class="stat-value" id="failedRepoCount">0</span><span class="stat-label">同步失败仓库</span></div>
+                    </div>
+                </section>
+
+                <section class="repo-actions-bar">
                     <button id="initDefaultReposBtn" class="add-btn">
                         <i class="fas fa-download"></i>
                         <span>获取初始仓库</span>
@@ -54,10 +60,26 @@
                 </section>
                 
                 <section class="repo-list">
-                    <div class="repo-grid">
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <label for="filterSelect">状态筛选:</label>
+                            <select id="filterSelect">
+                                <option value="all">全部</option>
+                                <option value="active">已同步</option>
+                                <option value="syncing">同步中</option>
+                                <option value="pending">未同步</option>
+                                <option value="error">同步失败</option>
+                            </select>
+                        </div>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchInput" placeholder="搜索仓库名称...">
+                        </div>
+                    </div>
+                    <div class="repo-list-content" id="repoList">
                         <div class="empty-state">
                             <i class="fab fa-github"></i>
-                            <p>暂无仓库，点击右上角获取初始仓库</p>
+                            <p>暂无仓库，请先获取初始仓库或添加仓库</p>
                         </div>
                     </div>
                 </section>

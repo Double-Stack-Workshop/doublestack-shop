@@ -40,10 +40,14 @@
                             </select>
                         </div>
                         <div class="select-item">
-                            <label for="fileSelect">选择 YML 文件</label>
+                            <label for="fileSearch">选择 YML 文件</label>
                             <div class="search-select-wrapper">
-                                <input type="text" id="fileSearch" class="form-input search-input is-hidden" placeholder="搜索文件...">
-                                <select id="fileSelect" class="form-select">
+                                <input type="text" id="fileSearch" class="form-input search-input" placeholder="请先选择仓库" autocomplete="off" disabled>
+                                <button type="button" class="file-picker-toggle" id="filePickerToggle" aria-label="展开 YML 文件列表">
+                                    <i class="fas fa-chevron-down"></i>
+                                </button>
+                                <div id="fileDropdown" class="file-dropdown is-hidden" role="listbox"></div>
+                                <select id="fileSelect" class="form-select file-select-native" aria-hidden="true" tabindex="-1">
                                     <option value="">请先选择仓库</option>
                                 </select>
                             </div>
@@ -166,6 +170,14 @@
                         </table>
                     </div>
                 </div>
+
+                <section class="deploy-queue-panel is-hidden" id="deployQueuePanel">
+                    <div class="deploy-queue-header">
+                        <span><i class="fas fa-list-ol"></i> 部署队列</span>
+                        <span id="deployQueueSummary">队列为空</span>
+                    </div>
+                    <div class="deploy-queue-items" id="deployQueueItems"></div>
+                </section>
 
                 <div class="deploy-output" id="outputSection" style="display: none;">
                     <div class="deploy-progress-panel" id="deployProgressPanel" style="display:none;">

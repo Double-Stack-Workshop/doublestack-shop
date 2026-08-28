@@ -1723,6 +1723,138 @@ def delete_image(image_id: str) -> Dict:
         log_service.error(f"镜像删除异常: {image_id} - {str(e)}", 'image')
         return {"success": False, "message": f"删除失败: {str(e)}"}
 
+
+def get_image_export_filename(image_id: str) -> Optional[str]:
+    """确认镜像存在，并返回适合作为下载文件名的名称。"""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", image_id],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("检查镜像超时")
+    except FileNotFoundError as exc:
+        raise RuntimeError("Docker命令不可用") from exc
+
+    if result.returncode != 0:
+        return None
+
+    image = next((item for item in get_all_images(use_cache=False) if item["id"] == image_id), None)
+    source_name = (image or {}).get("repo_tags", [image_id])[0] if (image or {}).get("repo_tags") else image_id
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", source_name).strip("._-") or "docker-image"
+    return f"{safe_name[:120]}.tar"
+
+
+def get_image_archive_dir() -> Path:
+    """返回镜像 tar 包的持久化目录，并在首次使用时创建。"""
+    archive_dir = Path(os.getenv("IMAGE_ARCHIVE_DIR", "/app/image"))
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    return archive_dir
+
+
+def export_image_archive(image_id: str) -> Dict:
+    """将镜像保存至持久化目录，成功后返回可下载的 tar 文件路径。"""
+    filename = get_image_export_filename(image_id)
+    if not filename:
+        return {"success": False, "message": "未找到镜像"}
+
+    try:
+        archive_dir = get_image_archive_dir()
+    except OSError as exc:
+        log_service.error(f"创建镜像归档目录失败: {exc}", 'image')
+        return {"success": False, "message": "镜像归档目录不可用"}
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_path = archive_dir / f"export-{timestamp}-{filename}"
+    partial_path = archive_path.with_suffix(".tar.part")
+    try:
+        result = subprocess.run(
+            ["docker", "image", "save", "--output", str(partial_path), image_id],
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+    except subprocess.TimeoutExpired:
+        log_service.error(f"镜像导出超时: {image_id}", 'image')
+        return {"success": False, "message": "镜像导出超时"}
+    except FileNotFoundError:
+        return {"success": False, "message": "Docker命令不可用"}
+    except OSError as exc:
+        log_service.error(f"镜像导出异常: {image_id} - {exc}", 'image')
+        return {"success": False, "message": f"镜像导出失败: {exc}"}
+
+    if result.returncode != 0:
+        partial_path.unlink(missing_ok=True)
+        message = (result.stderr or result.stdout).strip() or "Docker 返回错误"
+        log_service.error(f"镜像导出失败: {image_id} - {message}", 'image')
+        return {"success": False, "message": f"镜像导出失败: {message}"}
+
+    try:
+        partial_path.replace(archive_path)
+    except OSError as exc:
+        partial_path.unlink(missing_ok=True)
+        log_service.error(f"镜像归档失败: {image_id} - {exc}", 'image')
+        return {"success": False, "message": "镜像导出完成，但归档文件保存失败"}
+
+    log_service.success(f"镜像已导出并保存: {archive_path.name}", 'image')
+    return {"success": True, "filename": archive_path.name, "archive_path": archive_path}
+
+
+def stream_image_export(image_id: str) -> Generator[bytes, None, None]:
+    """将指定镜像保存为 tar 流，不在应用内存或磁盘中保留完整副本。"""
+    process = subprocess.Popen(
+        ["docker", "image", "save", image_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+    )
+    try:
+        assert process.stdout is not None
+        while chunk := process.stdout.read(1024 * 1024):
+            yield chunk
+        stderr = process.stderr.read().decode("utf-8", errors="replace") if process.stderr else ""
+        if process.wait() == 0:
+            log_service.success(f"镜像已导出: {image_id}", 'image')
+        else:
+            log_service.error(f"镜像导出失败: {image_id} - {stderr.strip()}", 'image')
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+
+
+def import_image_archive(archive_path: Path) -> Dict:
+    """将 docker save 生成的 tar 包导入当前 Docker 守护进程。"""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "load", "--input", str(archive_path)],
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+    except subprocess.TimeoutExpired:
+        log_service.error("镜像导入超时", 'image')
+        return {"success": False, "message": "镜像导入超时"}
+    except FileNotFoundError:
+        return {"success": False, "message": "Docker命令不可用"}
+    except OSError as exc:
+        log_service.error(f"镜像导入异常: {exc}", 'image')
+        return {"success": False, "message": f"镜像导入失败: {exc}"}
+
+    output = (result.stdout or result.stderr).strip()
+    if result.returncode != 0:
+        log_service.error(f"镜像导入失败: {output}", 'image')
+        return {"success": False, "message": f"镜像导入失败: {output or 'Docker 返回错误'}"}
+
+    try:
+        refresh_images_cache()
+    except (OSError, subprocess.SubprocessError) as exc:
+        log_service.warning(f"镜像导入后刷新列表失败: {exc}", 'image')
+    log_service.success("镜像导入成功", 'image')
+    return {"success": True, "message": "镜像导入成功", "details": output}
+
 def search_dockerhub_images(query: str) -> list:
     try:
         proxies = get_requests_proxies()
@@ -2646,7 +2778,7 @@ def schedule_host_docker_restart(delay_seconds: int = 3) -> Dict:
 
 def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v2.sh") -> dict:
     """通过反向推导当前容器的挂载信息，得到脚本文件在**宿主机**上的绝对路径，
-    并给出可直接在宿主机 shell 中粘贴执行的命令（一行式 + cd 式）。
+    并给出可直接在宿主机 root shell 中粘贴执行的一行命令。
 
     返回字段:
       resolved: bool            — 是否成功通过容器挂载反向推导出真实宿主机路径
@@ -2655,8 +2787,7 @@ def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v
       scripts_dir_container: str — 脚本目录在容器内的路径 ("/app/scripts")
       scripts_dir_host: str     — 脚本目录在宿主机上的绝对路径（推导结果或fallback相对路径）
       script_file_host: str     — 脚本文件在宿主机上的绝对路径
-      command_one_liner: str    — 一行式直接执行，例：sudo bash /xxx/backend/scripts/xxx.sh
-      command_cd_style: str     — cd+执行两段式，例：cd /xxx/backend/scripts && sudo bash xxx.sh
+      command_one_liner: str    — 一行式直接执行，例：bash /xxx/backend/scripts/xxx.sh
     """
     import os
     CONTAINER_SCRIPTS_DIR = "/app/scripts"
@@ -2711,9 +2842,7 @@ def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v
     script_file_host = os.path.join(scripts_dir_host, script_filename).replace("\\", "/")
 
     # 生成执行命令
-    SUDO = "sudo "  # 大多数 Linux 宿主机需要
-    command_one_liner = f"{SUDO}bash {script_file_host}"
-    command_cd_style = f"cd {scripts_dir_host} && {SUDO}bash {script_filename}"
+    command_one_liner = f"bash {script_file_host}"
 
     return {
         "resolved": resolved,
@@ -2723,7 +2852,6 @@ def resolve_host_scripts_dir(script_filename: str = "upgrade_docker_compose_to_v
         "scripts_dir_host": scripts_dir_host,
         "script_file_host": script_file_host,
         "command_one_liner": command_one_liner,
-        "command_cd_style": command_cd_style,
     }
 
 

@@ -2,8 +2,9 @@ import asyncio
 import os
 import json
 import time
-from fastapi import APIRouter, Cookie, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, StreamingResponse
+from pathlib import Path
+from fastapi import APIRouter, Cookie, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from .schemas import (
     AddRepoRequest, CreateNetworkRequest, CurrentRepoRequest, DeployRequest,
     DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
@@ -35,6 +36,8 @@ from .services import (
     get_latest_dockerhub_version,
     get_all_images,
     delete_image,
+    export_image_archive,
+    import_image_archive,
     search_dockerhub_images,
     pull_image,
     test_all_connectivity,
@@ -475,16 +478,22 @@ async def check_for_updates():
         }
     
     is_update_available = latest_version > VERSION
+    update_script_path = None
+    host_paths = None
     
     if is_update_available:
         log_service.info(f"发现新版本: {latest_version}", 'system')
-        generate_update_script(latest_version)
+        update_script_path = generate_update_script(latest_version)
+        host_paths = resolve_host_scripts_dir("update_app.sh")
     
     return {
         "success": True,
         "current_version": VERSION,
         "latest_version": latest_version,
-        "update_available": is_update_available
+        "update_available": is_update_available,
+        "update_script_path": update_script_path,
+        "host": host_paths,
+        "run_command_one_liner": host_paths.get("command_one_liner") if host_paths else None,
     }
 
 @router.get("/system/check-compose-upgrade")
@@ -625,6 +634,7 @@ echo "======================================"
     
     os.chmod(script_path, 0o755)
     print(f"更新脚本已生成: {script_path}")
+    return script_path
 
 @router.get("/images")
 async def list_images():
@@ -640,6 +650,57 @@ async def pull_image_endpoint(request: PullImageRequest):
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+@router.get("/images/{image_id}/export")
+async def export_image_endpoint(image_id: str):
+    result = export_image_archive(image_id)
+    if not result["success"]:
+        status_code = 404 if result["message"] == "未找到镜像" else 500
+        raise HTTPException(status_code=status_code, detail=result["message"])
+    return FileResponse(
+        path=result["archive_path"],
+        filename=result["filename"],
+        media_type="application/x-tar",
+    )
+
+
+@router.post("/images/import")
+async def import_image_endpoint(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith(".tar"):
+        raise HTTPException(status_code=400, detail="请选择 .tar 格式的 Docker 镜像包")
+
+    max_size = int(os.getenv("MAX_IMAGE_IMPORT_SIZE", str(20 * 1024 ** 3)))
+    import_dir = Path(os.getenv("IMAGE_ARCHIVE_DIR", "/app/image"))
+    import_dir.mkdir(parents=True, exist_ok=True)
+    original_name = Path(file.filename).name
+    safe_name = "".join(char if char.isalnum() or char in "._-" else "_" for char in original_name)
+    archive_path = import_dir / f"import-{int(time.time() * 1000)}-{safe_name or 'docker-image.tar'}"
+    total_size = 0
+    upload_completed = False
+    try:
+        with archive_path.open("wb") as destination:
+            while chunk := await file.read(1024 * 1024):
+                total_size += len(chunk)
+                if total_size > max_size:
+                    raise HTTPException(status_code=413, detail="镜像包超过允许的导入大小")
+                destination.write(chunk)
+        if total_size == 0:
+            raise HTTPException(status_code=400, detail="镜像包为空")
+        upload_completed = True
+        result = import_image_archive(archive_path)
+        if result["success"]:
+            log_service.info(f"镜像导入包已保存: {archive_path.name}", 'image')
+            result["message"] = "镜像导入成功，镜像包已保存到 image 目录"
+            return result
+        raise HTTPException(status_code=500, detail=result["message"])
+    finally:
+        await file.close()
+        if not upload_completed:
+            try:
+                archive_path.unlink(missing_ok=True)
+            except OSError as exc:
+                log_service.warning(f"无法清理未完成的镜像包: {exc}", 'image')
 
 @router.delete("/images/{image_id}")
 async def delete_image_endpoint(image_id: str):
@@ -740,7 +801,6 @@ async def update_global_domain(request: GlobalDomainRequest):
     return {"success": True, "message": "配置已保存"}
 
 # Docker 加速源相关路由
-from pathlib import Path
 
 DAEMON_JSON_PATH = Path("/etc/docker/daemon.json")
 docker_restart_status = {"state": "idle", "message": "尚未执行 Docker 重启", "updated_at": None}

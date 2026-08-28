@@ -93,38 +93,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    searchInput.addEventListener('input', function(e) {
-        const searchTerm = e.target.value.toLowerCase();
-        const repoCards = document.querySelectorAll('.repo-card');
-        
-        repoCards.forEach(card => {
-            const repoName = card.querySelector('.repo-info h3').textContent.toLowerCase();
-            const repoUrl = card.querySelector('.repo-info p').textContent.toLowerCase();
-            
-            if (repoName.includes(searchTerm) || repoUrl.includes(searchTerm)) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-    });
-    
-    filterSelect.addEventListener('change', function(e) {
-        const status = e.target.value;
-        const repoCards = document.querySelectorAll('.repo-card');
-        
-        repoCards.forEach(card => {
-            const statusElement = card.querySelector('.repo-status');
-            
-            if (status === 'all') {
-                card.style.display = 'block';
-            } else if (statusElement.classList.contains(status)) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-    });
+    searchInput.addEventListener('input', applyRepoFilters);
+    filterSelect.addEventListener('change', applyRepoFilters);
     
     loadRepos();
 });
@@ -135,6 +105,25 @@ async function loadSidebar() {
 
 let currentRepoName = '';
 
+function applyRepoFilters() {
+    const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
+    const selectedStatus = document.getElementById('filterSelect').value;
+
+    document.querySelectorAll('.repo-card').forEach(card => {
+        const matchesSearch = card.dataset.search.includes(searchTerm);
+        const matchesStatus = selectedStatus === 'all' || card.dataset.status === selectedStatus;
+        card.style.display = matchesSearch && matchesStatus ? 'flex' : 'none';
+    });
+}
+
+function updateRepoStats(repos) {
+    const countByStatus = status => repos.filter(repo => repo.status === status).length;
+    document.getElementById('totalRepoCount').textContent = repos.length;
+    document.getElementById('syncedRepoCount').textContent = countByStatus('active');
+    document.getElementById('pendingRepoCount').textContent = countByStatus('pending');
+    document.getElementById('failedRepoCount').textContent = countByStatus('error');
+}
+
 async function loadRepos() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/repos`);
@@ -143,10 +132,11 @@ async function loadRepos() {
         const currentRepo = repos.find(r => r.is_current);
         currentRepoName = currentRepo ? currentRepo.name : '';
         
-        const repoGrid = document.querySelector('.repo-grid');
+        const repoList = document.getElementById('repoList');
+        updateRepoStats(repos);
         
         if (repos.length === 0) {
-            repoGrid.innerHTML = `
+            repoList.innerHTML = `
                 <div class="empty-state">
                     <i class="fab fa-github"></i>
                     <p>暂无仓库，点击右上角获取初始仓库</p>
@@ -155,19 +145,13 @@ async function loadRepos() {
             return;
         }
         
-        repoGrid.innerHTML = repos.map(repo => `
-            <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${repo.name}">
-                <div class="repo-header">
-                    <div class="repo-icon">
-                        <i class="fab fa-github"></i>
-                    </div>
-                    <div class="repo-info">
-                        <h3>${repo.name}${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
-                        <p>${repo.url}</p>
-                    </div>
-                    ${getRepoStatusBadgeHTML(repo.status)}
-                </div>
-                <div class="repo-meta">
+        repoList.innerHTML = repos.map(repo => `
+            <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${repo.name}" data-status="${repo.status}" data-search="${`${repo.name} ${repo.url}`.toLowerCase()}">
+                <div class="repo-icon"><i class="fab fa-github"></i></div>
+                <div class="repo-info">
+                    <h3>${repo.name}${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
+                    <p>${repo.url}</p>
+                    <div class="repo-meta">
                     <div class="meta-item">
                         <i class="fas fa-file-code"></i>
                         <span>${repo.yml_count} 个 YML 文件</span>
@@ -176,26 +160,28 @@ async function loadRepos() {
                         <i class="fas fa-sync-alt"></i>
                         <span>上次同步: ${repo.last_sync || '从未'}</span>
                     </div>
+                    </div>
                 </div>
+                <div class="repo-status-wrap">${getRepoStatusBadgeHTML(repo.status)}</div>
                 <div class="repo-actions">
-                    <button class="action-btn view-btn" onclick="viewRepo('${repo.name}')">
+                    <button class="action-btn view-btn" title="查看文件" onclick="viewRepo('${repo.name}')">
                         <i class="fas fa-eye"></i>
-                        <span>查看文件</span>
                     </button>
                     <button class="action-btn sync-btn ${repo.status === 'syncing' ? 'disabled' : ''}" 
+                            title="${repo.status === 'syncing' ? '同步中' : '同步仓库'}"
                             onclick="syncRepo('${repo.name}', this)"
                             ${repo.status === 'syncing' ? 'disabled' : ''}>
                         <i class="fas fa-refresh ${repo.status === 'syncing' ? 'fa-spin' : ''}"></i>
-                        <span>${repo.status === 'syncing' ? '同步中' : '同步'}</span>
                     </button>
                     <button class="action-btn set-current-btn ${repo.is_current ? 'active' : ''}" 
+                            title="${repo.is_current ? '已设为当前' : '设为当前'}"
                             onclick="setCurrentRepo('${repo.name}', this)">
                         <i class="fas fa-star ${repo.is_current ? 'fa-solid' : 'fa-regular'}"></i>
-                        <span>${repo.is_current ? '已设为当前' : '设为当前'}</span>
                     </button>
                 </div>
             </div>
         `).join('');
+        applyRepoFilters();
     } catch (error) {
         console.error('加载仓库失败:', error);
         showMessage('加载仓库列表失败，请检查后端服务', 'error');
@@ -226,15 +212,14 @@ async function setCurrentRepo(repoName, btn) {
             
             document.querySelectorAll('.set-current-btn').forEach(b => {
                 const icon = b.querySelector('i');
-                const span = b.querySelector('span');
                 b.classList.remove('active');
                 icon.className = 'fas fa-star fa-regular';
-                span.textContent = '设为当前';
+                b.title = '设为当前';
             });
             
             btn.classList.add('active');
             btn.querySelector('i').className = 'fas fa-star fa-solid';
-            btn.querySelector('span').textContent = '已设为当前';
+            btn.title = '已设为当前';
             
             document.querySelectorAll('.repo-info h3').forEach(h3 => {
                 h3.innerHTML = h3.textContent.replace(' <span class="current-badge">当前系统仓库</span>', '');
@@ -242,6 +227,7 @@ async function setCurrentRepo(repoName, btn) {
             card.querySelector('.repo-info h3').innerHTML += ' <span class="current-badge">当前系统仓库</span>';
             
             showMessage(result.message, 'success');
+            await loadRepos();
         } else {
             showMessage(result.message || '设置失败', 'error');
         }
@@ -287,7 +273,8 @@ async function syncRepo(repoName, btn) {
     setRepoStatusClass(statusElement, 'syncing');
     
     btn.classList.add('disabled');
-    btn.innerHTML = '<i class="fas fa-refresh fa-spin"></i><span>同步中</span>';
+    btn.title = '同步中';
+    btn.innerHTML = '<i class="fas fa-refresh fa-spin"></i>';
     
     try {
         const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/sync`, {
@@ -298,30 +285,39 @@ async function syncRepo(repoName, btn) {
         
         if (response.ok && result.success) {
             setRepoStatusClass(statusElement, 'active');
+            card.dataset.status = 'active';
             
             btn.classList.remove('disabled');
-            btn.innerHTML = '<i class="fas fa-refresh"></i><span>同步</span>';
+            btn.title = '同步仓库';
+            btn.innerHTML = '<i class="fas fa-refresh"></i>';
             
             showMessage(result.message, 'success');
             
             const metaItems = card.querySelectorAll('.meta-item');
             metaItems[0].innerHTML = `<i class="fas fa-file-code"></i><span>${result.data.yml_count} 个 YML 文件</span>`;
             metaItems[1].innerHTML = `<i class="fas fa-sync-alt"></i><span>上次同步: 刚刚</span>`;
+            await loadRepos();
         } else {
             setRepoStatusClass(statusElement, 'error');
+            card.dataset.status = 'error';
             
             btn.classList.remove('disabled');
-            btn.innerHTML = '<i class="fas fa-refresh"></i><span>重试</span>';
+            btn.title = '重试同步';
+            btn.innerHTML = '<i class="fas fa-refresh"></i>';
             
             showMessage(result.message || '同步失败', 'error');
+            await loadRepos();
         }
     } catch (error) {
         setRepoStatusClass(statusElement, 'error');
+        card.dataset.status = 'error';
         
         btn.classList.remove('disabled');
-        btn.innerHTML = '<i class="fas fa-refresh"></i><span>重试</span>';
+        btn.title = '重试同步';
+        btn.innerHTML = '<i class="fas fa-refresh"></i>';
         
         showMessage('网络错误，请检查后端服务', 'error');
+        applyRepoFilters();
     }
 }
 

@@ -2,7 +2,9 @@
 日志服务模块
 记录项目运行时的所有操作日志
 """
+import os
 import threading
+from pathlib import Path
 from typing import List, Dict, Optional
 
 class LogService:
@@ -14,6 +16,49 @@ class LogService:
         self._max_logs = max_logs
         self._use_db = True
         self._db_initialized = False
+        self._log_dir = Path(os.getenv('APP_LOG_DIR', '/app/logs'))
+        self._log_file = self._log_dir / 'operations.log'
+        self._max_file_size = 10 * 1024 * 1024
+        self._backup_file_count = 5
+        self._file_logging_enabled = self._initialize_log_file()
+
+    def _initialize_log_file(self) -> bool:
+        """初始化持久化日志目录；文件异常不影响应用主流程。"""
+        try:
+            self._log_dir.mkdir(parents=True, exist_ok=True)
+            self._log_file.touch(exist_ok=True)
+            return True
+        except OSError:
+            return False
+
+    def _rotate_log_file(self) -> None:
+        """达到上限后轮转操作日志，避免持久化目录无限增长。"""
+        if not self._log_file.exists() or self._log_file.stat().st_size < self._max_file_size:
+            return
+
+        oldest = self._log_file.with_suffix(f'{self._log_file.suffix}.{self._backup_file_count}')
+        if oldest.exists():
+            oldest.unlink()
+        for index in range(self._backup_file_count - 1, 0, -1):
+            source = self._log_file.with_suffix(f'{self._log_file.suffix}.{index}')
+            if source.exists():
+                source.replace(self._log_file.with_suffix(f'{self._log_file.suffix}.{index + 1}'))
+        self._log_file.replace(self._log_file.with_suffix(f'{self._log_file.suffix}.1'))
+
+    def _write_log_file(self, entry: Dict) -> None:
+        if not self._file_logging_enabled:
+            return
+        try:
+            self._rotate_log_file()
+            details = entry['details']
+            detail_text = f" | details: {' || '.join(map(str, details))}" if details else ''
+            with self._log_file.open('a', encoding='utf-8') as log_file:
+                log_file.write(
+                    f"{entry['timestamp']} | {entry['level']} | {entry['type']} | "
+                    f"{entry['message']}{detail_text}\n"
+                )
+        except OSError:
+            self._file_logging_enabled = False
     
     def _get_utc8_now_str(self):
         """获取 UTC+8 时间字符串"""
@@ -61,6 +106,7 @@ class LogService:
             # 保持日志数量在限制内
             if len(self._logs) > self._max_logs:
                 self._logs = self._logs[-self._max_logs:]
+            self._write_log_file(log_entry)
         
         # 同时写入数据库
         if self._use_db:
@@ -103,6 +149,13 @@ class LogService:
         """清空所有日志"""
         with self._lock:
             self._logs.clear()
+            if self._file_logging_enabled:
+                try:
+                    for log_file in self._log_dir.glob('operations.log*'):
+                        log_file.unlink()
+                    self._log_file.touch(exist_ok=True)
+                except OSError:
+                    self._file_logging_enabled = False
         
         if self._use_db:
             try:

@@ -1,6 +1,7 @@
 const { API_BASE_URL, apiFetch } = window.AppPage;
 let allContainers = [];
 let globalDomain = '';
+let isRefreshingContainers = false;
 
 document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
@@ -58,18 +59,22 @@ function loadUserInfo() {
 }
 
 async function refreshContainers() {
+    if (isRefreshingContainers) return;
+    isRefreshingContainers = true;
     try {
         const response = await apiFetch(`${API_BASE_URL}/containers`);
         if (response.ok) {
             allContainers = await response.json();
-            renderContainers(allContainers);
             updateStats();
+            filterContainers();
         } else {
             showEmptyState();
         }
     } catch (error) {
         console.error('Failed to load containers:', error);
         showEmptyState();
+    } finally {
+        isRefreshingContainers = false;
     }
 }
 
@@ -142,7 +147,7 @@ function renderContainers(containers) {
                     <h3>${nameHtml}</h3>
                     <p>
                         <span><i class="fas fa-hashtag"></i> ${container.id.slice(0, 12)}</span>
-                        <span><i class="fas fa-image"></i> ${container.image.split('/').pop().split(':')[0]}</span>
+                        <span><i class="fab fa-docker"></i> ${container.image.split('/').pop().split(':')[0]}</span>
                     </p>
                 </div>
             </div>
@@ -177,10 +182,6 @@ function showEmptyState() {
         <div class="empty-state">
             <i class="fas fa-inbox"></i>
             <p>暂无容器数据</p>
-            <button class="btn btn-primary" onclick="refreshContainers()">
-                <i class="fas fa-refresh"></i>
-                刷新数据
-            </button>
         </div>
     `;
 }

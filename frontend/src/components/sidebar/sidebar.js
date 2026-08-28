@@ -36,4 +36,20 @@ export function initSidebar(currentPage) {
             item.classList.add('active');
         }
     });
+
+    loadSidebarVersion();
+}
+
+async function loadSidebarVersion() {
+    const versionElement = document.getElementById('sidebarVersion');
+    if (!versionElement) return;
+
+    try {
+        const response = await fetch('/api/system/version');
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.current_version) versionElement.textContent = result.current_version;
+    } catch {
+        // 保留 HTML 中的默认版本，侧边栏不能因版本请求失败而影响使用。
+    }
 }

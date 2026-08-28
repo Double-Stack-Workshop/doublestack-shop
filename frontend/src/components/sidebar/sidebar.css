@@ -53,6 +53,12 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.brand-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 .logo {
     display: flex;
     align-items: center;
@@ -77,6 +83,21 @@
     overflow: hidden;
 }
 
+.sidebar-version {
+    align-self: center;
+    width: auto;
+    margin: 0 0 0 -6px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.14);
+    color: rgba(203, 213, 225, 0.72);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
 .sidebar.collapsed .logo span {
     opacity: 0;
     width: 0;
@@ -86,6 +107,10 @@
 
 .sidebar.collapsed .logo {
     gap: 0;
+}
+
+.sidebar.collapsed .sidebar-version {
+    display: none;
 }
 
 .sidebar-nav {
