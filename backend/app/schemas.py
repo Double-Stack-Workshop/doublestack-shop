@@ -1,11 +1,12 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 class AddRepoRequest(BaseModel):
     name: Optional[str] = None
     repo_url: str
     branch: str = "main"
-    local_path: str
+    local_path: str = ""
+    repo_type: Literal["compose", "script"] = "compose"
 
 
 class LoginRequest(BaseModel):
@@ -81,3 +82,4 @@ class RepoInfo(BaseModel):
     last_sync: Optional[str] = None
     status: str = "active"
     repo_dir_name: str = ""
+    repo_type: Literal["compose", "script"] = "compose"

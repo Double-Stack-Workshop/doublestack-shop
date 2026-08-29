@@ -6,7 +6,7 @@
 
 - **📦 容器管理** - 实时查看容器状态，支持启动/停止/重启/删除容器，查看容器日志；配置全局域名/IP后，容器名称可点击跳转至访问地址
 - **🚀 一键部署** - 通过 Docker Compose 快速部署应用，支持实时日志输出、时间戳与镜像拉取进度条；慢网环境下使用空闲超时避免部署中断；同时兼容 Docker Compose v1 与 v2
-- **📚 仓库管理** - 添加和管理多个 Git 仓库，支持飞牛、绿联、极空间等多平台容器仓库，按 local_path 筛选文件
+- **📚 仓库管理** - 支持 Compose 与 Scripts 两种 Git 仓库：Compose 扫描 YML 用于部署，Scripts 扫描 `.sh` 并持久化保存
 - **💾 备份恢复** - 容器完整备份（镜像+配置+数据卷），支持一键恢复和文件上传恢复；备份文件时间戳使用 UTC+8 时区
 - **🖼️ 镜像管理** - 查看、拉取、删除本地镜像，支持导入 Docker `.tar` 镜像包和导出单个镜像，检测 Docker Hub 最新版本
 - **📊 仪表盘** - 实时统计容器数量、备份状态等关键数据；展示宿主机系统信息（CPU、内存、磁盘、系统版本、网络）；展示 Docker/Docker Compose 版本信息；测试 GitHub 和 Docker Hub 连接性
@@ -76,7 +76,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.0.9
+  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.1.0
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -88,9 +88,9 @@ docker run -d \
 
 | 宿主机映射 | 容器目录 | 用途 | 不映射的影响 |
 | --- | --- | --- | --- |
-| `./backend/data` | `/app/data` | 用户、会话、系统设置和数据库 | 所有应用数据会随容器重建丢失 |
-| `./backend/repos` | `/app/repos` | 已同步的 Git 仓库和 Compose 文件 | 仓库与 YML 文件会丢失 |
-| `./backend/scripts` | `/app/scripts` | 更新与 Compose 升级脚本 | 宿主机无法直接使用生成的脚本 |
+| `./backend/data` | `/app/data` | 用户、会话、系统设置、数据库及仓库 Git 缓存 | 所有应用数据会随容器重建丢失 |
+| `./backend/repos` | `/app/repos` | 已同步 Compose 仓库所选子目录的文件 | 部署文件会丢失 |
+| `./backend/scripts` | `/app/scripts` | 更新与 Compose 升级脚本，以及 Scripts 仓库同步的 `.sh` 脚本 | 宿主机无法直接使用生成或同步的脚本 |
 | `./backend/backup` | `/app/backup` | 容器备份文件 | 备份文件会丢失 |
 | `./backend/logs` | `/app/logs` | 操作日志实体文件 | 日志文件会丢失 |
 | `./backend/image` | `/app/image` | 导入及导出的 Docker `.tar` 镜像包 | 镜像包会丢失 |
@@ -167,6 +167,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.1.0 | 2026-08-28 | 仓库管理支持 Compose 与 Scripts 两种仓库类型；Compose 仓库仅将所选 `local_path` 导出到 `repos` 映射目录，Scripts 仓库仅将选中的 `.sh` 脚本导出到 `scripts` 映射目录，Git 缓存保存在 `data` 中；Scripts 不会出现在容器部署来源中。 |
 | v2.0.9 | 2026-08-27 | 检查更新后自动反推 `scripts` 挂载对应的宿主机绝对路径；提示用户先执行 `sudo -i`，再提供唯一的一行更新命令；修复更新脚本生成接口未返回脚本路径的问题；镜像管理新增 Docker `.tar` 包导入与镜像导出。 |
 | v2.0.8 | 2026-08-27 | 完成会话鉴权、bcrypt 密码迁移、管理员 API 与 WebSocket 权限校验；统一数据库事务与前端公共认证/请求逻辑；部署页改用 YAML 解析器并拆分部署流和网络模块；Docker 加速源增加重启恢复检测与回滚；新增 Ruff、ESLint、CI 和回归测试；新增前端缓存清理；修复登录 422、管理员添加用户、仪表盘快捷跳转、部署页仓库筛选/加载、Compose 文件宿主机映射路径解析及普通用户仪表盘权限显示问题。 |
 | v2.0.7 | 2026-08-22 | Docker 加速源保存后支持自动重启宿主机 Docker 服务；修复部署页高级模式无法保存和部署的问题；修复卷挂载路径包含连字符时显示被截断的问题； |

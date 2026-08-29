@@ -69,7 +69,9 @@ async function loadRepositories() {
             throw new Error(`HTTP error! status: ${reposResponse.status}`);
         }
         const repos = await reposResponse.json();
-        const deployableRepos = repos.filter((repo) => repo.status === 'active' && repo.yml_count > 0);
+        const deployableRepos = repos.filter((repo) => (
+            repo.repo_type !== 'script' && repo.status === 'active' && repo.yml_count > 0
+        ));
 
         deployableRepos.forEach(repo => {
             const option = document.createElement('option');

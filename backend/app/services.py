@@ -6,8 +6,13 @@ import time
 import threading
 import queue
 import datetime
+import hashlib
+import io
 import json
+import tarfile
+import tempfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import List, Dict, Optional, Generator
 from .schemas import YmlFile, RepoInfo
 from .logger import log_service
@@ -455,10 +460,17 @@ def _stream_command(cmd: list, env: dict, timeout: int, stage: str, label: str, 
 APP_ROOT = Path(__file__).resolve().parent.parent
 REPOS_DIR = Path(os.getenv("REPOS_DIR", APP_ROOT / "repos")).resolve()
 REPOS_DIR.mkdir(exist_ok=True)
+SCRIPTS_DIR = (APP_ROOT / "scripts").resolve()
+SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+SCRIPT_REPOS_DIR = SCRIPTS_DIR / "repos"  # 旧版 Scripts 仓库目录，仅用于迁移清理。
+MANAGED_APPLICATION_SCRIPT_NAMES = {"update_app.sh", "upgrade_docker_compose_to_v2.sh"}
 
 DATA_DIR = Path(os.getenv("DATA_DIR", APP_ROOT / "data")).resolve()
 DATA_DIR.mkdir(exist_ok=True)
 REPOS_JSON_PATH = DATA_DIR / "repos.json"
+REPO_CACHE_DIR = DATA_DIR / "repo-cache"
+REPO_CACHE_DIR.mkdir(exist_ok=True)
+SCRIPT_REPOS_STATE_PATH = DATA_DIR / "script-repos-state.json"
 
 # 默认仓库配置（若 JSON 文件不存在则写入）
 DEFAULT_REPOS_JSON = [
@@ -499,7 +511,7 @@ from .database import (
 
 # JSON 读写仓库配置
 def load_repos_config() -> List[Dict]:
-    """从 repos.json 读取仓库配置（仅 name/repo_url/branch/local_path 4 字段）"""
+    """读取仓库配置；旧配置未声明类型时按 Compose 仓库兼容。"""
     if not REPOS_JSON_PATH.exists():
         REPOS_JSON_PATH.write_text(
             json.dumps(DEFAULT_REPOS_JSON, ensure_ascii=False, indent=4),
@@ -525,7 +537,8 @@ def save_repos_config(repos_list: List[Dict]) -> bool:
                 "name": r.get("name", ""),
                 "repo_url": r.get("repo_url", ""),
                 "branch": r.get("branch", "main"),
-                "local_path": r.get("local_path", "")
+                "local_path": r.get("local_path", ""),
+                "repo_type": r.get("repo_type", "compose")
             })
         REPOS_JSON_PATH.write_text(
             json.dumps(clean_list, ensure_ascii=False, indent=4),
@@ -640,22 +653,32 @@ def _load_repos_from_json():
             repo_url = repo.get("repo_url", "")
             branch = repo.get("branch", "main")
             local_path = repo.get("local_path", "")
-            actual_repo_dir_name = get_repo_name_from_url(repo_url)
-            repo_dir = REPOS_DIR / actual_repo_dir_name
+            repo_type = repo.get("repo_type", "compose")
+            if repo_type not in {"compose", "script"}:
+                repo_type = "compose"
+            actual_repo_dir_name = _repo_directory_name(repo_url, local_path, repo_type)
+            repo_dir = _repo_storage_root(repo_type) / actual_repo_dir_name
 
             # 动态扫描 yml 文件（如果本地已 clone 完成）
             yml_files = []
             last_sync = "未同步"
             status = "active"
-            if repo_dir.exists() and (repo_dir / ".git").exists():
+            script_state_key = _script_repo_state_key(repo_url, branch, local_path)
+            is_synced = repo_dir.exists() and (
+                repo_type == "compose" or script_state_key in _load_script_repos_state()
+            )
+            if is_synced:
                 try:
-                    yml_files = scan_yml_files(repo_dir, local_path)
+                    yml_files = scan_repo_files(
+                        repo_dir, local_path, repo_type, repo_url, branch
+                    )
                 except Exception:
                     yml_files = []
-                # 取 git 目录修改时间作为 last_sync 近似值
+                # Compose 只导出所选目录，Git 元数据保存在 data/repo-cache。
                 try:
                     import datetime as _dt
-                    mtime = (repo_dir / ".git").stat().st_mtime
+                    timestamp_path = repo_dir
+                    mtime = timestamp_path.stat().st_mtime
                     dt = _dt.datetime.fromtimestamp(mtime, _dt.timezone(_dt.timedelta(hours=8)))
                     last_sync = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
@@ -671,7 +694,8 @@ def _load_repos_from_json():
                 yml_files=yml_files,
                 last_sync=last_sync,
                 status=status,
-                repo_dir_name=actual_repo_dir_name
+                repo_dir_name=actual_repo_dir_name,
+                repo_type=repo_type,
             )
             repos_db.append(repo_info)
         _repos_loaded = True
@@ -701,9 +725,74 @@ def get_requests_proxies() -> Dict[str, str]:
 def get_repo_name_from_url(url: str) -> str:
     return url.rstrip('/').split('/')[-1].replace('.git', '')
 
-def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, max_retries: int = 3) -> Dict:
+
+def _normalize_repo_local_path(local_path: str) -> PurePosixPath:
+    """Return a safe relative repository subdirectory path."""
+    normalized = (local_path or "").strip().replace("\\", "/")
+    if not normalized:
+        return PurePosixPath()
+    path = PurePosixPath(normalized)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("仓库内路径必须是合法的相对路径")
+    return path
+
+
+def _script_repo_state_key(repo_url: str, branch: str, local_path: str) -> str:
+    raw = f"{repo_url}\n{branch}\n{local_path}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _load_script_repos_state() -> Dict[str, List[str]]:
+    try:
+        state = json.loads(SCRIPT_REPOS_STATE_PATH.read_text(encoding="utf-8"))
+        return state if isinstance(state, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_script_repos_state(state: Dict[str, List[str]]) -> None:
+    SCRIPT_REPOS_STATE_PATH.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _repo_storage_root(repo_type: str) -> Path:
+    return SCRIPTS_DIR if repo_type == "script" else REPOS_DIR
+
+
+def _repo_directory_name(repo_url: str, local_path: str, repo_type: str) -> str:
+    """Compose repositories publish only their selected subdirectory to repos/."""
+    if repo_type == "script":
+        return ""
+    if repo_type == "compose":
+        selected_path = _normalize_repo_local_path(local_path)
+        if selected_path.parts:
+            return str(selected_path)
+    return get_repo_name_from_url(repo_url)
+
+
+def _repo_directory(repo: RepoInfo) -> Path:
+    repo_dir_name = repo.repo_dir_name or _repo_directory_name(
+        repo.url, repo.local_path, repo.repo_type
+    )
+    return _repo_storage_root(repo.repo_type) / repo_dir_name
+
+
+def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, repo_type: str = "compose", max_retries: int = 3) -> Dict:
+    """Synchronize a repository while keeping its Git metadata out of mapped files."""
     repo_name = get_repo_name_from_url(repo_url)
-    repo_dir = REPOS_DIR / repo_name
+    if repo_type in {"compose", "script"}:
+        try:
+            selected_path = _normalize_repo_local_path(local_path)
+        except ValueError as exc:
+            return {"success": False, "message": str(exc), "status": "error"}
+        repo_dir = (
+            REPOS_DIR / _repo_directory_name(repo_url, local_path, repo_type)
+            if repo_type == "compose" else SCRIPTS_DIR
+        )
+    else:
+        selected_path = PurePosixPath()
+        repo_dir = _repo_storage_root(repo_type) / repo_name
 
     env = os.environ.copy()
     http_proxy = proxy_config["http_proxy"]
@@ -714,6 +803,132 @@ def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, max_retries:
     if https_proxy:
         env["HTTPS_PROXY"] = https_proxy
         env["https_proxy"] = https_proxy
+
+    if repo_type in {"compose", "script"}:
+        cache_key = hashlib.sha256(f"{repo_url}\n{branch}".encode("utf-8")).hexdigest()[:16]
+        cache_dir = REPO_CACHE_DIR / f"{repo_name}-{cache_key}.git"
+
+        def git_result(args: List[str], timeout: int) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                args, capture_output=True, timeout=timeout, env=env
+            )
+
+        def update_cache() -> Dict:
+            for attempt in range(max_retries):
+                try:
+                    if cache_dir.exists():
+                        result = git_result(
+                            ["git", "--git-dir", str(cache_dir), "fetch", "--depth", "1", "origin", f"+refs/heads/{branch}:refs/heads/{branch}"],
+                            300,
+                        )
+                    else:
+                        result = git_result(
+                            ["git", "clone", "--mirror", "--depth", "1", "--branch", branch, repo_url, str(cache_dir)],
+                            300,
+                        )
+                    if result.returncode == 0:
+                        return {"success": True}
+                    if cache_dir.exists() and attempt < max_retries - 1:
+                        shutil.rmtree(cache_dir, ignore_errors=True)
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    return {
+                        "success": False,
+                        "message": f"仓库同步失败: {result.stderr.decode('utf-8', errors='replace').strip()}",
+                        "status": "error",
+                    }
+                except subprocess.TimeoutExpired:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    return {"success": False, "message": "仓库同步超时", "status": "error"}
+                except OSError as exc:
+                    return {"success": False, "message": f"仓库同步失败: {exc}", "status": "error"}
+            return {"success": False, "message": "仓库同步失败", "status": "error"}
+
+        def export_selected_directory() -> Dict:
+            treeish = branch if not selected_path.parts else f"{branch}:{selected_path.as_posix()}"
+            try:
+                result = git_result(
+                    ["git", "--git-dir", str(cache_dir), "archive", "--format=tar", treeish],
+                    120,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return {"success": False, "message": f"导出仓库文件失败: {exc}", "status": "error"}
+            if result.returncode != 0:
+                return {
+                    "success": False,
+                    "message": f"仓库内路径不存在或无法导出: {result.stderr.decode('utf-8', errors='replace').strip()}",
+                    "status": "error",
+                }
+
+            repo_dir.parent.mkdir(parents=True, exist_ok=True)
+            temp_dir = Path(tempfile.mkdtemp(prefix=f".{repo_name}-", dir=repo_dir.parent))
+            try:
+                with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+                    for member in archive.getmembers():
+                        destination = (temp_dir / member.name).resolve()
+                        if destination != temp_dir and temp_dir not in destination.parents:
+                            raise ValueError("仓库归档包含不安全的文件路径")
+                    if repo_type == "compose":
+                        archive.extractall(temp_dir)
+                    else:
+                        for member in archive.getmembers():
+                            if member.isfile() and member.name.endswith(".sh"):
+                                archive.extract(member, temp_dir)
+
+                if repo_type == "compose":
+                    backup_dir = repo_dir.with_name(f".{repo_dir.name}.previous")
+                    if backup_dir.exists():
+                        shutil.rmtree(backup_dir, ignore_errors=True)
+                    if repo_dir.exists():
+                        repo_dir.replace(backup_dir)
+                    temp_dir.replace(repo_dir)
+                    shutil.rmtree(backup_dir, ignore_errors=True)
+                else:
+                    state = _load_script_repos_state()
+                    state_key = _script_repo_state_key(repo_url, branch, local_path)
+                    previous_files = state.get(state_key, [])
+                    script_files = [
+                        str(path.relative_to(temp_dir)).replace("\\", "/")
+                        for path in temp_dir.rglob("*.sh")
+                        if path.is_file() and path.name not in MANAGED_APPLICATION_SCRIPT_NAMES
+                    ]
+                    for relative_path in previous_files:
+                        stale_file = (SCRIPTS_DIR / relative_path).resolve()
+                        if SCRIPTS_DIR in stale_file.parents and relative_path not in script_files:
+                            stale_file.unlink(missing_ok=True)
+                    for relative_path in script_files:
+                        source_file = temp_dir / relative_path
+                        target_file = SCRIPTS_DIR / relative_path
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_file, target_file)
+                    state[state_key] = script_files
+                    _save_script_repos_state(state)
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except (OSError, tarfile.TarError, ValueError) as exc:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return {"success": False, "message": f"导出仓库文件失败: {exc}", "status": "error"}
+
+            if repo_type == "compose":
+                # Migrate old full-repository checkouts out of the mounted deploy directory.
+                legacy_dir = REPOS_DIR / repo_name
+                if selected_path.parts and legacy_dir != repo_dir and (legacy_dir / ".git").exists():
+                    shutil.rmtree(legacy_dir, ignore_errors=True)
+            else:
+                legacy_dir = SCRIPT_REPOS_DIR / repo_name
+                if (legacy_dir / ".git").exists():
+                    shutil.rmtree(legacy_dir, ignore_errors=True)
+            return {
+                "success": True,
+                "message": "仓库同步成功",
+                "status": "active",
+                "path": str(repo_dir),
+            }
+
+        cache_result = update_cache()
+        return export_selected_directory() if cache_result["success"] else cache_result
 
     def is_repo_incomplete(directory: Path) -> bool:
         git_dir = directory / ".git"
@@ -901,6 +1116,33 @@ def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
     
     return yml_files
 
+
+def scan_script_files(repo_dir: Path, repo_url: str, branch: str, local_path: str = "") -> List[YmlFile]:
+    """从 Scripts 仓库同步清单中读取已导出到 scripts 根目录的脚本。"""
+    state_key = _script_repo_state_key(repo_url, branch, local_path)
+    script_paths = _load_script_repos_state().get(state_key, [])
+    scripts = []
+    for relative_path in script_paths:
+        script_path = (repo_dir / relative_path).resolve()
+        try:
+            if repo_dir not in script_path.parents or not script_path.is_file():
+                continue
+            scripts.append(YmlFile(
+                name=script_path.name,
+                path=str(script_path.relative_to(repo_dir)),
+                content=script_path.read_text(encoding="utf-8"),
+            ))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return scripts
+
+
+def scan_repo_files(repo_dir: Path, local_path: str, repo_type: str, repo_url: str = "", branch: str = "main") -> List[YmlFile]:
+    if repo_type == "script":
+        return scan_script_files(repo_dir, repo_url, branch, local_path)
+    # Compose 同步时已只导出 local_path 的内容，不能再拼接一次 local_path。
+    return scan_yml_files(repo_dir)
+
 def get_all_repos() -> List[Dict]:
     _ensure_repos_loaded()
     current_repo = get_setting("current_repo", "")
@@ -911,6 +1153,8 @@ def get_all_repos() -> List[Dict]:
             "branch": repo.branch,
             "local_path": repo.local_path,
             "yml_count": len(repo.yml_files),
+            "file_count": len(repo.yml_files),
+            "repo_type": repo.repo_type,
             "last_sync": repo.last_sync,
             "status": repo.status,
             "is_current": repo.name == current_repo
@@ -918,24 +1162,24 @@ def get_all_repos() -> List[Dict]:
         for repo in repos_db
     ]
 
-def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = None) -> Dict:
+def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = None, repo_type: str = "compose") -> Dict:
     _ensure_repos_loaded()
     repo_name = name if name else get_repo_name_from_url(repo_url)
-    actual_repo_dir_name = get_repo_name_from_url(repo_url)
+    actual_repo_dir_name = _repo_directory_name(repo_url, local_path, repo_type)
     
     for repo in repos_db:
         if repo.name == repo_name:
             log_service.warning(f"仓库已存在: {repo_name}", 'system')
             return {"success": False, "message": "仓库已存在", "status": "error"}
     
-    result = clone_or_pull_repo(repo_url, branch, local_path)
+    result = clone_or_pull_repo(repo_url, branch, local_path, repo_type)
     
     if not result["success"]:
         log_service.error(f"仓库添加失败: {repo_name} - {result.get('message', '未知错误')}", 'system')
         return result
     
     repo_dir = Path(result["path"])
-    yml_files = scan_yml_files(repo_dir, local_path)
+    yml_files = scan_repo_files(repo_dir, local_path, repo_type, repo_url, branch)
     
     repo_info = RepoInfo(
         name=repo_name,
@@ -945,7 +1189,8 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         yml_files=yml_files,
         last_sync="刚刚",
         status="active",
-        repo_dir_name=actual_repo_dir_name
+        repo_dir_name=actual_repo_dir_name,
+        repo_type=repo_type,
     )
     repos_db.append(repo_info)
     
@@ -956,20 +1201,24 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
             "name": repo_name,
             "repo_url": repo_url,
             "branch": branch,
-            "local_path": local_path
+            "local_path": local_path,
+            "repo_type": repo_type,
         })
         save_repos_config(current_json)
     except Exception as e:
         print(f"保存仓库到 repos.json 失败: {e}")
     
-    log_service.success(f"仓库添加成功: {repo_name} (发现 {len(yml_files)} 个 YML 文件)", 'system')
+    file_label = "脚本" if repo_type == "script" else "YML 文件"
+    log_service.success(f"仓库添加成功: {repo_name} (发现 {len(yml_files)} 个{file_label})", 'system')
     
     return {
         "success": True,
-        "message": f"仓库添加成功，发现 {len(yml_files)} 个 YML 文件",
+        "message": f"仓库添加成功，发现 {len(yml_files)} 个{file_label}",
         "data": {
             "name": repo_name,
             "yml_count": len(yml_files),
+            "file_count": len(yml_files),
+            "repo_type": repo_type,
             "yml_files": [
                 {"name": f.name, "path": f.path}
                 for f in yml_files
@@ -981,24 +1230,29 @@ def sync_repo(repo_name: str) -> Dict:
     _ensure_repos_loaded()
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
-            result = clone_or_pull_repo(repo.url, repo.branch, repo.local_path)
+            result = clone_or_pull_repo(repo.url, repo.branch, repo.local_path, repo.repo_type)
             
             if result["success"]:
                 repo_dir = Path(result["path"])
-                repo.yml_files = scan_yml_files(repo_dir, repo.local_path)
+                repo.yml_files = scan_repo_files(
+                    repo_dir, repo.local_path, repo.repo_type, repo.url, repo.branch
+                )
                 repo.status = "active"
                 repo.last_sync = "刚刚"
                 repos_db[i] = repo
                 
                 # 注：yml_files/last_sync/status 为动态字段，不写入 JSON；4 字段不变无需写入
                 
-                log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个 YML 文件)", 'system')
+                file_label = "脚本" if repo.repo_type == "script" else "YML 文件"
+                log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个{file_label})", 'system')
                 
                 return {
                     "success": True,
-                    "message": f"同步成功，发现 {len(repo.yml_files)} 个 YML 文件",
+                    "message": f"同步成功，发现 {len(repo.yml_files)} 个{file_label}",
                     "data": {
                         "yml_count": len(repo.yml_files),
+                        "file_count": len(repo.yml_files),
+                        "repo_type": repo.repo_type,
                         "yml_files": [
                             {"name": f.name, "path": f.path}
                             for f in repo.yml_files
@@ -1021,6 +1275,7 @@ def get_repo(repo_name: str) -> Optional[Dict]:
                 "url": repo.url,
                 "branch": repo.branch,
                 "local_path": repo.local_path,
+                "repo_type": repo.repo_type,
                 "yml_files": [
                     {"name": f.name, "path": f.path}
                     for f in repo.yml_files
@@ -1034,8 +1289,7 @@ def get_yml_content(repo_name: str, file_path: str) -> Optional[Dict]:
     _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
-            actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
-            repo_dir = REPOS_DIR / actual_repo_dir_name
+            repo_dir = _repo_directory(repo)
             for yml_file in repo.yml_files:
                 if yml_file.path == file_path or yml_file.name == file_path:
                     file_full_path = repo_dir / yml_file.path
@@ -1068,8 +1322,7 @@ def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
     _ensure_repos_loaded()
     for repo in repos_db:
         if repo.name == repo_name:
-            actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
-            repo_dir = REPOS_DIR / actual_repo_dir_name
+            repo_dir = _repo_directory(repo)
             for i, yml_file in enumerate(repo.yml_files):
                 if yml_file.name == file_name:
                     file_path = repo_dir / yml_file.path
@@ -1113,6 +1366,17 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
     """
     from .database import add_deployment
 
+    _ensure_repos_loaded()
+    selected_repo = next((repo for repo in repos_db if repo.name == repo_name), None)
+    if not selected_repo or selected_repo.repo_type != "compose":
+        yield {
+            "type": "done", "success": False,
+            "message": "仅 Compose 类型仓库中的 YML 文件可以部署",
+            "data": {"repo_name": repo_name, "file_path": file_path, "status": "error"},
+            "ts": _now_iso(), "elapsed_sec": 0,
+        }
+        return
+
     compose_command = get_compose_command()
     if not compose_command:
         yield {
@@ -1130,8 +1394,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
             for yml_file in repo.yml_files:
                 if yml_file.path == file_path or yml_file.name == file_path:
                     # 使用实际的仓库目录名称，而不是自定义名称
-                    actual_repo_dir_name = repo.repo_dir_name if repo.repo_dir_name else get_repo_name_from_url(repo.url)
-                    repo_dir = REPOS_DIR / actual_repo_dir_name
+                    repo_dir = _repo_directory(repo)
                     yml_full_path = (repo_dir / yml_file.path).resolve()
                     execution_compose_command = compose_command
                     execution_yml_path = yml_full_path
@@ -1766,8 +2029,8 @@ def export_image_archive(image_id: str) -> Dict:
         log_service.error(f"创建镜像归档目录失败: {exc}", 'image')
         return {"success": False, "message": "镜像归档目录不可用"}
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    archive_path = archive_dir / f"export-{timestamp}-{filename}"
+    # 导出文件使用镜像名；同名镜像再次导出时覆盖旧归档。
+    archive_path = archive_dir / filename
     partial_path = archive_path.with_suffix(".tar.part")
     try:
         result = subprocess.run(
@@ -2186,7 +2449,11 @@ def get_current_repo() -> str:
     return get_setting("current_repo", "")
 
 def set_current_repo(repo_name: str) -> bool:
-    """设置当前系统仓库"""
+    """设置当前 Compose 仓库，脚本仓库不能作为部署来源。"""
+    _ensure_repos_loaded()
+    repo = next((item for item in repos_db if item.name == repo_name), None)
+    if not repo or repo.repo_type != "compose":
+        return False
     set_setting("current_repo", repo_name)
     return True
 

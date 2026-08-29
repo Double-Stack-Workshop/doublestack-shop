@@ -9,12 +9,35 @@ document.addEventListener('DOMContentLoaded', async function() {
     const addRepoForm = document.getElementById('addRepoForm');
     const searchInput = document.getElementById('searchInput');
     const filterSelect = document.getElementById('filterSelect');
+    const repoTypeInput = document.getElementById('repoType');
+    const repoTypeOptions = document.querySelectorAll('.repo-type-option');
+    const localPathInput = document.getElementById('localPath');
+
+    function selectRepoType(repoType) {
+        repoTypeInput.value = repoType;
+        repoTypeOptions.forEach((option) => {
+            const selected = option.dataset.repoType === repoType;
+            option.classList.toggle('active', selected);
+            option.setAttribute('aria-checked', String(selected));
+        });
+        localPathInput.placeholder = repoType === 'script'
+            ? '留空则扫描整个仓库内的 .sh 脚本'
+            : '留空则扫描整个仓库内的 YML 文件';
+    }
     
     checkLogin();
     loadUserInfo();
     
     addRepoBtn.addEventListener('click', function() {
+        addRepoForm.reset();
+        selectRepoType('compose');
         addRepoModal.classList.add('active');
+    });
+
+    repoTypeOptions.forEach((option) => {
+        option.addEventListener('click', function () {
+            selectRepoType(this.dataset.repoType);
+        });
     });
     
     if (initDefaultReposBtn) {
@@ -50,10 +73,11 @@ document.addEventListener('DOMContentLoaded', async function() {
         const repoName = document.getElementById('repoName').value.trim();
         const repoUrl = document.getElementById('repoUrl').value;
         const branch = document.getElementById('branch').value;
-        const localPath = document.getElementById('localPath').value;
+        const localPath = document.getElementById('localPath').value.trim();
+        const repoType = repoTypeInput.value;
         
-        if (!repoUrl || !localPath) {
-            showMessage('请填写仓库地址和本地路径', 'error');
+        if (!repoUrl) {
+            showMessage('请填写仓库地址', 'error');
             return;
         }
         
@@ -71,7 +95,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                     name: repoName || null,
                     repo_url: repoUrl,
                     branch: branch,
-                    local_path: localPath
+                    local_path: localPath,
+                    repo_type: repoType
                 })
             });
             
@@ -149,12 +174,12 @@ async function loadRepos() {
             <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${repo.name}" data-status="${repo.status}" data-search="${`${repo.name} ${repo.url}`.toLowerCase()}">
                 <div class="repo-icon"><i class="fab fa-github"></i></div>
                 <div class="repo-info">
-                    <h3>${repo.name}${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
+                    <h3>${repo.name}<span class="repo-type-badge ${repo.repo_type === 'script' ? 'script' : 'compose'}">${repo.repo_type === 'script' ? 'Scripts' : 'Compose'}</span>${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
                     <p>${repo.url}</p>
                     <div class="repo-meta">
                     <div class="meta-item">
-                        <i class="fas fa-file-code"></i>
-                        <span>${repo.yml_count} 个 YML 文件</span>
+                        <i class="fas ${repo.repo_type === 'script' ? 'fa-terminal' : 'fa-file-code'}"></i>
+                        <span>${repo.file_count ?? repo.yml_count} 个${repo.repo_type === 'script' ? '脚本' : ' YML 文件'}</span>
                     </div>
                     <div class="meta-item">
                         <i class="fas fa-sync-alt"></i>
@@ -173,11 +198,11 @@ async function loadRepos() {
                             ${repo.status === 'syncing' ? 'disabled' : ''}>
                         <i class="fas fa-refresh ${repo.status === 'syncing' ? 'fa-spin' : ''}"></i>
                     </button>
-                    <button class="action-btn set-current-btn ${repo.is_current ? 'active' : ''}" 
+                    ${repo.repo_type !== 'script' ? `<button class="action-btn set-current-btn ${repo.is_current ? 'active' : ''}"
                             title="${repo.is_current ? '已设为当前' : '设为当前'}"
                             onclick="setCurrentRepo('${repo.name}', this)">
                         <i class="fas fa-star ${repo.is_current ? 'fa-solid' : 'fa-regular'}"></i>
-                    </button>
+                    </button>` : ''}
                 </div>
             </div>
         `).join('');
@@ -327,17 +352,19 @@ async function viewRepo(repoName) {
         const repo = await response.json();
         
         if (response.ok) {
+            const isScriptRepo = repo.repo_type === 'script';
+            const fileLabel = isScriptRepo ? '脚本' : 'YML 文件';
             let ymlList = '';
             if (repo.yml_files && repo.yml_files.length > 0) {
                 ymlList = repo.yml_files.map(file => `
                     <div class="yml-item">
-                        <i class="fas fa-file-code"></i>
+                        <i class="fas ${isScriptRepo ? 'fa-terminal' : 'fa-file-code'}"></i>
                         <span>${file.name}</span>
                         <span class="yml-path">${file.path}</span>
                     </div>
                 `).join('');
             } else {
-                ymlList = '<p class="no-yml">未找到 YML 文件</p>';
+                ymlList = `<p class="no-yml">未找到 ${fileLabel}</p>`;
             }
             
             const modal = document.createElement('div');
@@ -347,7 +374,7 @@ async function viewRepo(repoName) {
             modal.innerHTML = `
                 <div class="modal-content view-modal">
                     <div class="modal-header">
-                        <h2>${repo.name} - YML 文件列表 (${fileCount}个)</h2>
+                        <h2>${repo.name} - ${fileLabel}列表 (${fileCount}个)</h2>
                         <button class="modal-close" onclick="closeViewModal()">
                             <i class="fas fa-times"></i>
                         </button>

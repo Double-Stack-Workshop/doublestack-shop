@@ -308,6 +308,20 @@ body {
     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
+.repo-type-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.repo-type-badge.compose { color: #4f46e5; background: #eef2ff; }
+.repo-type-badge.script { color: #0f766e; background: #ccfbf1; }
+
 .user-info {
     display: flex;
     align-items: center;
@@ -707,6 +721,58 @@ div.repo-status.error .status-dot {
     font-size: 12px;
 }
 
+.repo-type-selector {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.repo-type-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 66px;
+    padding: 10px 12px;
+    color: #64748b;
+    text-align: left;
+    background: #f8fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+.repo-type-option:hover {
+    border-color: #a5b4fc;
+    background: #f5f3ff;
+}
+
+.repo-type-option.active {
+    color: #4f46e5;
+    background: #eef2ff;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.repo-type-option i {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: #6366f1;
+    background: #e0e7ff;
+}
+
+.repo-type-option span {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.repo-type-option strong { font-size: 14px; }
+.repo-type-option small { color: #64748b; font-size: 11px; line-height: 1.35; }
+
 .form-group input {
     width: 100%;
     padding: 14px 16px;
@@ -931,7 +997,7 @@ div.repo-status.error .status-dot {
 }
 
 .repo-card .repo-info { min-width: 0; flex: 1; }
-.repo-card .repo-info h3 { margin: 0 0 4px; color: #1a1a2e; font-size: 16px; font-weight: 700; }
+.repo-card .repo-info h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; color: #1a1a2e; font-size: 16px; font-weight: 700; line-height: 1.25; }
 .repo-card .repo-info p { overflow: hidden; color: #64748b; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .current-badge { margin-left: 6px; vertical-align: 1px; }
 

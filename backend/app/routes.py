@@ -270,7 +270,9 @@ async def init_default_repos_route():
 
 @router.post("/repos")
 async def create_repo(request: AddRepoRequest):
-    result = await asyncio.to_thread(add_repo, request.repo_url, request.branch, request.local_path, request.name)
+    result = await asyncio.to_thread(
+        add_repo, request.repo_url, request.branch, request.local_path, request.name, request.repo_type
+    )
     if result["success"]:
         return result
     else:
@@ -775,7 +777,8 @@ async def get_current_repo_route():
 @router.put("/current-repo")
 async def set_current_repo_route(request: CurrentRepoRequest):
     """设置当前系统仓库"""
-    set_current_repo(request.repo_name)
+    if not set_current_repo(request.repo_name):
+        raise HTTPException(status_code=400, detail="仅已存在的 Compose 仓库可设为当前仓库")
     log_service.info(f"当前系统仓库已设置为: {request.repo_name}", 'system')
     return {"success": True, "message": f"当前系统仓库已设置为: {request.repo_name}"}
 
