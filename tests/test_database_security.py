@@ -42,16 +42,7 @@ class DatabaseSecurityTests(unittest.TestCase):
         database.set_setting("http_proxy", "http://proxy.example:8080")
         self.assertEqual(database.get_setting("http_proxy"), "http://proxy.example:8080")
 
-    def test_repository_deployment_cache_and_backup_round_trip(self):
-        class Yml:
-            name = "compose.yml"
-            path = "compose.yml"
-            content = "services: {}"
-
-        self.assertTrue(database.add_repo_to_db(
-            "demo", "https://example.test/demo.git", "main", "/repos", "demo", [Yml()], "now", "active"
-        ))
-        self.assertEqual(database.get_repo_by_name_from_db("demo")["yml_files"][0]["name"], "compose.yml")
+    def test_deployment_cache_and_backup_round_trip(self):
         self.assertTrue(database.add_deployment("demo", "compose.yml", status="deployed"))
         self.assertEqual(database.get_deployed_apps_count(), 1)
 

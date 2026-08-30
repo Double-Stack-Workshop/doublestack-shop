@@ -473,34 +473,6 @@ REPO_CACHE_DIR = DATA_DIR / "repo-cache"
 REPO_CACHE_DIR.mkdir(exist_ok=True)
 SCRIPT_REPOS_STATE_PATH = DATA_DIR / "script-repos-state.json"
 
-# 默认仓库配置（若 JSON 文件不存在则写入）
-DEFAULT_REPOS_JSON = [
-    {
-        "name": "飞牛容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "fnOS"
-    },
-    {
-        "name": "绿联新系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "UgreenNew"
-    },
-    {
-        "name": "绿联旧系统容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "Ugreen（Abandoned）"
-    },
-    {
-        "name": "极空间容器仓库",
-        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
-        "branch": "main",
-        "local_path": "ZSpace"
-    }
-]
-
 from .database import (
     get_proxy_config as db_get_proxy_config,
     set_proxy_config as db_set_proxy_config,
@@ -511,26 +483,44 @@ from .database import (
 )
 
 # JSON 读写仓库配置
-def load_repos_config() -> List[Dict]:
-    """读取仓库配置；旧配置未声明类型时按 Compose 仓库兼容。"""
-    if not REPOS_JSON_PATH.exists():
-        REPOS_JSON_PATH.write_text(
-            json.dumps(DEFAULT_REPOS_JSON, ensure_ascii=False, indent=4),
-            encoding="utf-8"
-        )
-        return DEFAULT_REPOS_JSON
+def _read_json_config(path: Path, expected_type: type, label: str):
+    """读取唯一 JSON 配置源；格式无效时返回空值并记录原因。"""
     try:
-        content = REPOS_JSON_PATH.read_text(encoding="utf-8")
-        data = json.loads(content)
-        if not isinstance(data, list):
-            return DEFAULT_REPOS_JSON
-        return data
-    except Exception as e:
-        print(f"读取 repos.json 失败，使用默认配置: {e}")
-        return DEFAULT_REPOS_JSON
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"读取 {label} 失败: {exc}")
+        return None
+    if not isinstance(data, expected_type):
+        print(f"读取 {label} 失败: 配置格式不正确")
+        return None
+    return data
+
+
+def _repo_sync_timestamp(path: Optional[Path] = None) -> str:
+    """返回仓库目录的实际修改时间；新同步完成时使用当前 UTC+8 时间。"""
+    if path is not None:
+        try:
+            timestamp = path.stat().st_mtime
+            return datetime.datetime.fromtimestamp(
+                timestamp,
+                datetime.timezone(datetime.timedelta(hours=8)),
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except OSError:
+            pass
+    return datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def load_repos_config() -> List[Dict]:
+    """读取唯一的 repos.json 配置源。"""
+    if not REPOS_JSON_PATH.exists():
+        print("读取 repos.json 失败: 文件不存在")
+        return []
+    return _read_json_config(REPOS_JSON_PATH, list, "repos.json") or []
 
 def save_repos_config(repos_list: List[Dict]) -> bool:
-    """将仓库配置列表写入 repos.json（列表项只保留 4 字段）"""
+    """将仓库配置列表写入 repos.json（列表项保留 5 个配置字段）。"""
     try:
         clean_list = []
         for r in repos_list:
@@ -550,53 +540,7 @@ def save_repos_config(repos_list: List[Dict]) -> bool:
         print(f"写入 repos.json 失败: {e}")
         return False
 
-# 容器推荐配置 JSON
 RECOMMEND_JSON_PATH = DATA_DIR / "recommend.json"
-DEFAULT_RECOMMEND_CONFIG = {
-    "_tutorial_base_url": "https://blog.doublestack.top/archives/",
-    "qbittorrent": {
-        "title": "qBittorrent",
-        "subtitle": "轻量级 BitTorrent 客户端",
-        "description": "功能强大的开源 BitTorrent 客户端，支持远程管理、RSS订阅、Web UI 等功能。",
-        "tags": ["下载工具", "BT"],
-        "tutorial": "docker-rong-qi-qbittorrent-bu-shu-jiao-cheng"
-    },
-    "transmission": {
-        "title": "Transmission",
-        "subtitle": "快速轻量级 BT 客户端",
-        "description": "开源的 BitTorrent 客户端，以简洁高效著称，支持 Web 界面远程管理。",
-        "tags": ["下载工具", "BT"],
-        "tutorial": "docker-rong-qi-transmission-bu-shu-jiao-cheng"
-    },
-    "emby": {
-        "title": "Emby",
-        "subtitle": "个人媒体服务器",
-        "description": "强大的媒体服务器，支持自动刮削元数据、多设备播放、实时转码、直播电视等功能。",
-        "tags": ["媒体", "影音"],
-        "tutorial": "docker-rong-qi-emby-bu-shu-jiao-cheng"
-    },
-    "moviepilot": {
-        "title": "MoviePilot",
-        "subtitle": "智能媒体库管理工具",
-        "description": "NAS 媒体库自动化管理工具，支持自动订阅、刮削、整理、通知等功能。",
-        "tags": ["媒体", "自动化"],
-        "tutorial": "docker-rong-qi-moviepilot-bu-shu-jiao-cheng"
-    },
-    "navidrome": {
-        "title": "Navidrome",
-        "subtitle": "现代音乐流媒体服务器",
-        "description": "开源的音乐流媒体服务器，支持 Subsonic API，可在线播放和管理个人音乐库。",
-        "tags": ["音乐", "流媒体"],
-        "tutorial": "docker-rong-qi-navidrome-bu-shu-jiao-cheng"
-    },
-    "openlist": {
-        "title": "OpenList",
-        "subtitle": "网盘文件列表程序",
-        "description": "支持多种网盘的文件列表程序，可统一管理阿里云盘、百度网盘、天翼云盘等。",
-        "tags": ["网盘", "文件管理"],
-        "tutorial": "docker-rong-qi-openlist-bu-shu-jiao-cheng"
-    }
-}
 
 def _resolve_recommend_tutorials(raw: Dict) -> Dict:
     """将配置里的短路径 tutorial 与 _tutorial_base_url 拼接，并移除公用配置字段"""
@@ -617,28 +561,14 @@ def _resolve_recommend_tutorials(raw: Dict) -> Dict:
     return result
 
 def load_recommend_config() -> Dict:
-    """从 recommend.json 读取容器推荐配置，文件不存在或损坏时用默认配置并写回。
-    返回前会根据 _tutorial_base_url 将短路径 tutorial 拼接为完整 URL。"""
+    """读取唯一的 recommend.json 配置源。"""
     if not RECOMMEND_JSON_PATH.exists():
-        try:
-            RECOMMEND_JSON_PATH.write_text(
-                json.dumps(DEFAULT_RECOMMEND_CONFIG, ensure_ascii=False, indent=4),
-                encoding="utf-8"
-            )
-        except Exception as e:
-            print(f"写入 recommend.json 失败: {e}")
-        return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
-    try:
-        content = RECOMMEND_JSON_PATH.read_text(encoding="utf-8")
-        data = json.loads(content)
-        if not isinstance(data, dict):
-            return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
-        return _resolve_recommend_tutorials(data)
-    except Exception as e:
-        print(f"读取 recommend.json 失败，使用默认配置: {e}")
-        return _resolve_recommend_tutorials(DEFAULT_RECOMMEND_CONFIG)
+        print("读取 recommend.json 失败: 文件不存在")
+        return {}
+    config = _read_json_config(RECOMMEND_JSON_PATH, dict, "recommend.json")
+    return _resolve_recommend_tutorials(config or {})
 
-# 初始化：从 JSON 加载仓库信息（4 字段），yml_files 等动态字段在内存构建
+# 初始化：从 JSON 加载仓库信息（5 个配置字段），动态字段在内存构建。
 repos_db: List[RepoInfo] = []
 _repos_loaded = False
 
@@ -676,14 +606,7 @@ def _load_repos_from_json():
                 except Exception:
                     yml_files = []
                 # Compose 只导出所选目录，Git 元数据保存在 data/repo-cache。
-                try:
-                    import datetime as _dt
-                    timestamp_path = repo_dir
-                    mtime = timestamp_path.stat().st_mtime
-                    dt = _dt.datetime.fromtimestamp(mtime, _dt.timezone(_dt.timedelta(hours=8)))
-                    last_sync = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    last_sync = "已同步"
+                last_sync = _repo_sync_timestamp(repo_dir)
             else:
                 status = "pending"
 
@@ -1059,24 +982,6 @@ def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, repo_type: s
             "status": "error"
         }
 
-def init_default_repos():
-    """仅当 repos.json 为空时写入默认 4 个仓库配置（不执行 clone）"""
-    existing = load_repos_config()
-    if existing and len(existing) > 0:
-        # JSON 已有内容，不做处理；但缺项时补齐（比如之前有用户手动清空某个仓库）
-        need_save = False
-        existing_names = {r.get("name") for r in existing}
-        for default in DEFAULT_REPOS_JSON:
-            if default["name"] not in existing_names:
-                existing.append(default)
-                need_save = True
-        if need_save:
-            save_repos_config(existing)
-        return
-
-    # JSON 为空时写入默认配置
-    save_repos_config(DEFAULT_REPOS_JSON)
-
 def scan_yml_files(repo_dir: Path, local_path: str = "") -> List[YmlFile]:
     yml_files = []
     
@@ -1184,14 +1089,14 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         branch=branch,
         local_path=local_path,
         yml_files=yml_files,
-        last_sync="刚刚",
+        last_sync=_repo_sync_timestamp(),
         status="active",
         repo_dir_name=actual_repo_dir_name,
         repo_type=repo_type,
     )
     repos_db.append(repo_info)
     
-    # 保存 4 字段到 JSON
+    # 保存 5 个配置字段到 JSON。
     try:
         current_json = load_repos_config()
         current_json.append({
@@ -1235,10 +1140,10 @@ def sync_repo(repo_name: str) -> Dict:
                     repo_dir, repo.local_path, repo.repo_type, repo.url, repo.branch
                 )
                 repo.status = "active"
-                repo.last_sync = "刚刚"
+                repo.last_sync = _repo_sync_timestamp()
                 repos_db[i] = repo
                 
-                # 注：yml_files/last_sync/status 为动态字段，不写入 JSON；4 字段不变无需写入
+                # yml_files、last_sync 和 status 是运行时字段，不写入 JSON。
                 
                 file_label = "脚本" if repo.repo_type == "script" else "YML 文件"
                 log_service.info(f"仓库同步成功: {repo_name} (发现 {len(repo.yml_files)} 个{file_label})", 'system')
@@ -1250,6 +1155,7 @@ def sync_repo(repo_name: str) -> Dict:
                         "yml_count": len(repo.yml_files),
                         "file_count": len(repo.yml_files),
                         "repo_type": repo.repo_type,
+                        "last_sync": repo.last_sync,
                         "yml_files": [
                             {"name": f.name, "path": f.path}
                             for f in repo.yml_files

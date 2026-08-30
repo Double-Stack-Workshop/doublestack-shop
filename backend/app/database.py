@@ -81,21 +81,8 @@ def init_db():
         )
     ''')
     
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS repos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            url TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            local_path TEXT,
-            repo_dir_name TEXT NOT NULL,
-            yml_files TEXT,
-            last_sync TEXT,
-            status TEXT DEFAULT 'active',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    ''')
+    # 仓库配置已统一存储在 data/repos.json；清理旧版未使用的 SQLite 表。
+    cursor.execute('DROP TABLE IF EXISTS repos')
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS operation_logs (
@@ -449,103 +436,6 @@ def get_deployment_success_rate():
             'SELECT COUNT(*) FROM deployments WHERE status = ?', ('deployed',)
         ).fetchone()[0]
     return round((success / total) * 100)
-
-# ============ 仓库相关函数 ============
-
-def get_all_repos_from_db():
-    try:
-        with db_connection() as conn:
-            repos = conn.execute('SELECT * FROM repos ORDER BY created_at DESC').fetchall()
-    except sqlite3.OperationalError:
-        repos = []
-    
-    result = []
-    for repo in repos:
-        yml_files = load_json(repo[6], [], f"repo:{repo[1]}")
-        
-        result.append({
-            'id': repo[0],
-            'name': repo[1],
-            'url': repo[2],
-            'branch': repo[3],
-            'local_path': repo[4],
-            'repo_dir_name': repo[5],
-            'yml_files': yml_files,
-            'last_sync': repo[7],
-            'status': repo[8],
-            'created_at': repo[9],
-            'updated_at': repo[10]
-        })
-    return result
-
-def add_repo_to_db(name, url, branch, local_path, repo_dir_name, yml_files, last_sync, status):
-    now = get_utc8_now_str()
-    yml_files_json = json.dumps([{'name': f.name, 'path': f.path, 'content': f.content} for f in yml_files])
-    
-    try:
-        with db_connection() as conn:
-            conn.execute('''
-                INSERT INTO repos (name, url, branch, local_path, repo_dir_name, yml_files, last_sync, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (name, url, branch, local_path, repo_dir_name, yml_files_json, last_sync, status, now, now))
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-def update_repo_in_db(name, yml_files=None, last_sync=None, status=None):
-    updates = []
-    params = []
-    
-    if yml_files is not None:
-        updates.append("yml_files = ?")
-        params.append(json.dumps([{'name': f.name, 'path': f.path, 'content': f.content} for f in yml_files]))
-    
-    if last_sync is not None:
-        updates.append("last_sync = ?")
-        params.append(last_sync)
-    
-    if status is not None:
-        updates.append("status = ?")
-        params.append(status)
-    
-    updates.append("updated_at = ?")
-    params.append(get_utc8_now_str())
-    params.append(name)
-    
-    if not updates:
-        return False
-    with db_connection() as conn:
-        cursor = conn.execute(f'UPDATE repos SET {", ".join(updates)} WHERE name = ?', params)
-        return cursor.rowcount > 0
-
-def delete_repo_from_db(name):
-    with db_connection() as conn:
-        return conn.execute('DELETE FROM repos WHERE name = ?', (name,)).rowcount > 0
-
-def get_repo_by_name_from_db(name):
-    try:
-        with db_connection() as conn:
-            repo = conn.execute('SELECT * FROM repos WHERE name = ?', (name,)).fetchone()
-    except sqlite3.OperationalError:
-        repo = None
-    
-    if repo:
-        yml_files = load_json(repo[6], [], f"repo:{repo[1]}")
-        
-        return {
-            'id': repo[0],
-            'name': repo[1],
-            'url': repo[2],
-            'branch': repo[3],
-            'local_path': repo[4],
-            'repo_dir_name': repo[5],
-            'yml_files': yml_files,
-            'last_sync': repo[7],
-            'status': repo[8],
-            'created_at': repo[9],
-            'updated_at': repo[10]
-        }
-    return None
 
 # ============ 操作日志相关函数 ============
 

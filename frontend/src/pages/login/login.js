@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL } = window.AppPage;
 
 document.addEventListener('DOMContentLoaded', function() {
     const loginForm = document.getElementById('loginForm');

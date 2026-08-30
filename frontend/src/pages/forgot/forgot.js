@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const { API_BASE_URL } = window.AppPage;
 
 document.getElementById('forgotForm').addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -58,7 +58,6 @@ from .services import (
     stream_host_metrics,
     get_current_repo,
     set_current_repo,
-    init_default_repos,
     load_recommend_config,
     detect_docker_compose,
     generate_compose_upgrade_script,
@@ -264,13 +263,6 @@ async def delete_user_endpoint(username: str):
 async def list_repos():
     log_service.info("获取仓库列表", 'query')
     return get_all_repos()
-
-@router.post("/repos/init-default")
-async def init_default_repos_route():
-    await asyncio.to_thread(init_default_repos)
-    log_service.info("初始化默认仓库", 'system')
-    repos = get_all_repos()
-    return {"success": True, "message": f"已初始化 {len(repos)} 个仓库", "data": repos}
 
 @router.post("/repos")
 async def create_repo(request: AddRepoRequest):

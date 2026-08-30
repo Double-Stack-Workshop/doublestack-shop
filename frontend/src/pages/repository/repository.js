@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadSidebar();
     
     const addRepoBtn = document.getElementById('addRepoBtn');
-    const initDefaultReposBtn = document.getElementById('initDefaultReposBtn');
     const addRepoModal = document.getElementById('addRepoModal');
     const addRepoForm = document.getElementById('addRepoForm');
     const searchInput = document.getElementById('searchInput');
@@ -39,34 +38,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             selectRepoType(this.dataset.repoType);
         });
     });
-    
-    if (initDefaultReposBtn) {
-        initDefaultReposBtn.addEventListener('click', async function() {
-            const btn = this;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
-            
-            try {
-                const response = await apiFetch(`${API_BASE_URL}/repos/init-default`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok && result.success) {
-                    showMessage(result.message, 'success');
-                    await loadRepos();
-                } else {
-                    showMessage(result.message || '获取失败', 'error');
-                }
-            } catch (error) {
-                showMessage('网络错误，请检查后端服务', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-download"></i><span>获取初始仓库</span>';
-            }
-        });
-    }
     
     addRepoForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -320,7 +291,7 @@ async function syncRepo(repoName, btn) {
             
             const metaItems = card.querySelectorAll('.meta-item');
             metaItems[0].innerHTML = `<i class="fas fa-file-code"></i><span>${result.data.yml_count} 个 YML 文件</span>`;
-            metaItems[1].innerHTML = `<i class="fas fa-sync-alt"></i><span>上次同步: 刚刚</span>`;
+            metaItems[1].innerHTML = `<i class="fas fa-sync-alt"></i><span>上次同步: ${result.data.last_sync || '已完成'}</span>`;
             await loadRepos();
         } else {
             setRepoStatusClass(statusElement, 'error');
@@ -426,34 +397,6 @@ function checkLogin() {
 
 function loadUserInfo() {
     window.AppPage.populateUsername();
-}
-
-async function initDefaultRepos() {
-    const btn = document.getElementById('initDefaultReposBtn');
-    if (!btn) return;
-    
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>获取中...</span>';
-    
-    try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/init-default`, {
-            method: 'POST'
-        });
-        
-        const result = await response.json();
-        
-        if (response.ok && result.success) {
-            showMessage(result.message, 'success');
-            await loadRepos();
-        } else {
-            showMessage(result.message || '获取失败', 'error');
-        }
-    } catch (error) {
-        showMessage('网络错误，请检查后端服务', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-download"></i><span>获取初始仓库</span>';
-    }
 }
 
 const style = document.createElement('style');
