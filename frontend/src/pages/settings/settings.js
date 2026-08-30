@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadUserInfo();
     loadVersion();
     loadProxyConfig();
+    loadAppriseConfig();
     loadGlobalDomain();
     loadDockerMirrors();
     
@@ -332,6 +333,96 @@ async function saveProxyConfig() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
+    }
+}
+
+async function loadAppriseConfig() {
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/apprise`);
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.success && result.data) {
+            let notifyUrl = result.data.url || '';
+            const key = result.data.key || '';
+            if (key && !/\/notify(?:\/|$)/.test(notifyUrl)) {
+                notifyUrl = `${notifyUrl.replace(/\/$/, '')}/notify/${encodeURIComponent(key)}`;
+            }
+            document.getElementById('appriseUrl').value = notifyUrl;
+            document.getElementById('appriseEnabled').checked = Boolean(result.data.enabled);
+            document.querySelectorAll('input[name="appriseEvent"]').forEach((input) => {
+                input.checked = result.data.events?.[input.value] ?? true;
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load Apprise config:', error);
+    }
+}
+
+function getApprisePayload() {
+    const events = {};
+    document.querySelectorAll('input[name="appriseEvent"]').forEach((input) => {
+        events[input.value] = input.checked;
+    });
+    return {
+        url: document.getElementById('appriseUrl').value.trim(),
+        key: '',
+        enabled: document.getElementById('appriseEnabled').checked,
+        events,
+    };
+}
+
+async function saveAppriseConfig(silent = false) {
+    const btn = document.getElementById('saveAppriseBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/apprise`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(getApprisePayload()),
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+            if (!silent) showMessage('Apprise 通知配置保存成功', 'success');
+            return true;
+        } else {
+            showMessage(result.message || result.detail || '保存失败', 'error');
+            return false;
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', 'error');
+        return false;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> 保存配置';
+    }
+}
+
+async function testAppriseNotification() {
+    if (!document.getElementById('appriseEnabled').checked) {
+        showMessage('请先启用并保存 Apprise 通知配置', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('testAppriseBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发送中...';
+    try {
+        const saved = await saveAppriseConfig(true);
+        if (!saved) return;
+        const response = await apiFetch(`${API_BASE_URL}/apprise/test`, { method: 'POST' });
+        const result = await response.json();
+        if (response.ok && result.success) {
+            showMessage('测试通知已发送', 'success');
+        } else {
+            showMessage(result.detail || result.message || '测试通知发送失败', 'error');
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> 发送测试通知';
     }
 }
 

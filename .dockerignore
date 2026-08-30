@@ -1,0 +1,32 @@
+# 版本控制与本地工具缓存
+.git/
+.github/
+.ruff_cache/
+.codex/
+
+# Python 与前端依赖、测试产物
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+frontend/node_modules/
+tests/
+
+# 本地运行时数据；仅保留镜像启动所需的默认仓库与推荐配置。
+backend/data/*
+!backend/data/repos.json
+!backend/data/recommend.json
+backend/repos/
+backend/scripts/
+backend/backup/
+backend/logs/
+backend/image/
+
+# 本地环境文件与杂项
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db

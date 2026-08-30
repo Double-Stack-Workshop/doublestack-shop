@@ -1,0 +1,37 @@
+[
+    {
+        "name": "飞牛容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "fnOS",
+        "repo_type": "compose"
+    },
+    {
+        "name": "绿联新系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "UgreenNew",
+        "repo_type": "compose"
+    },
+    {
+        "name": "绿联旧系统容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "Ugreen（Abandoned）",
+        "repo_type": "compose"
+    },
+    {
+        "name": "极空间容器仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "ZSpace",
+        "repo_type": "compose"
+    },
+    {
+        "name": "脚本仓库",
+        "repo_url": "https://github.com/Double-Stack-Workshop/Compose-File",
+        "branch": "main",
+        "local_path": "Scripts",
+        "repo_type": "script"
+    }
+]

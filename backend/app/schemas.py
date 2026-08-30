@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 class AddRepoRequest(BaseModel):
     name: Optional[str] = None
@@ -55,6 +55,13 @@ class PullImageRequest(BaseModel):
 class ProxyRequest(BaseModel):
     http_proxy: str = ""
     https_proxy: str = ""
+
+
+class AppriseConfigRequest(BaseModel):
+    url: str = ""
+    key: str = ""
+    enabled: bool = False
+    events: Optional[Dict[str, bool]] = None
 
 
 class CurrentRepoRequest(BaseModel):

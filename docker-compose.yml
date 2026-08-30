@@ -3,10 +3,8 @@ version: '3.8'
 name: doublestack-shop
 
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  doublestack-shop:
+    image: lastthree/doublestack-shop:v2.1.1
     container_name: doublestack-shop
     ports:
       - "8000:8001"

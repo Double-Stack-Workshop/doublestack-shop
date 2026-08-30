@@ -24,35 +24,21 @@
 
 ## 快速开始
 
-### 方式一：克隆构建部署（开发/自定义）
+### 方式一：Compose 部署（推荐）
 
 ```bash
 # 1. 克隆项目
 git clone https://github.com/Double-Stack-Workshop/doublestack-shop.git
 cd doublestack-shop
 
-# 2. 构建并启动（本地构建镜像）
+# 2. 启动服务（从 Docker Hub 拉取镜像）
 docker compose up -d
 
 # 3. 访问应用
 # 打开浏览器访问：http://localhost:8000
 ```
 
-### 方式二：Compose 部署（推荐）
-
-```bash
-# 1. 创建 docker-compose.run.yml 文件
-curl -O https://raw.githubusercontent.com/Double-Stack-Workshop/doublestack-shop/main/docker-compose.run.yml
-
-# 2. 启动服务（从 Docker Hub 拉取镜像）
-# 注意：请先编辑 docker-compose.run.yml，将 {version} 替换为实际版本号
-docker compose -f docker-compose.run.yml up -d
-
-# 3. 访问应用
-# 打开浏览器访问：http://localhost:8000
-```
-
-### 方式三：Docker Run 部署
+### 方式二：Docker Run 部署
 
 ```bash
 # 创建必要目录
@@ -76,7 +62,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:{version} # 请将 {version} 替换为实际版本号，如 v2.1.0
+  lastthree/doublestack-shop:v2.1.1
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -103,6 +89,21 @@ docker run -d \
 | `/:/host:rw`、`/etc/docker:/etc/docker:rw` | 获取宿主机信息、更新 Docker 配置及重启 Docker | 可省略，但宿主机操作和 Docker 加速源功能受限 |
 | `/etc/passwd:/etc/passwd:ro`、`/etc/group:/etc/group:ro` | 识别宿主机用户与组权限 | 可省略，但终端与权限识别可能受限 |
 
+### GitHub 提交与运行数据
+
+仓库仅提交源码、部署文件、文档及初始化默认配置 `backend/data/repos.json`、`backend/data/recommend.json`。以下内容均由应用启动或使用过程中生成，已通过 `.gitignore` 排除，不会上传到 GitHub：
+
+| 路径 | 生成内容 |
+| --- | --- |
+| `backend/data/app.db`、`backend/data/repo-cache/` | 用户、设置、会话及仓库 Git 缓存 |
+| `backend/repos/` | 已同步的 Compose 部署文件 |
+| `backend/scripts/` | 同步的脚本及应用生成的维护脚本 |
+| `backend/backup/` | 容器备份文件 |
+| `backend/logs/` | 操作日志实体文件 |
+| `backend/image/` | 导入和导出的 Docker `.tar` 镜像包 |
+
+这些目录无需预先创建；容器启动或首次使用相关功能时会自动创建。它们应通过 Compose 卷映射持久化，而不是提交到 GitHub。
+
 ### 默认账号
 
 - 默认管理员账号：`admin`
@@ -113,8 +114,7 @@ docker run -d \
 ```
 doublestack-shop/
 ├── Dockerfile              # Docker 镜像构建文件
-├── docker-compose.yml      # Docker Compose 配置
-├── docker-compose.run.yml  # Docker Run 部署配置
+├── docker-compose.yml      # Docker Compose 运行配置（直接拉取发布镜像）
 ├── backend/
 │   ├── app/
 │   │   ├── main.py        # FastAPI 应用入口
@@ -155,18 +155,11 @@ doublestack-shop/
 - **前端**: 原生 HTML/CSS/JavaScript
 - **容器**: Docker + Docker Compose
 
-## 安全与运维说明
-
-- 所有管理 API 和 WebSocket 终端均要求登录；容器、部署、备份、设置等高风险操作仅限管理员。
-- 密码以 bcrypt 哈希保存。旧版密码会在成功登录后自动迁移；会话 Cookie 为 HttpOnly，服务端可撤销。
-- 如需从不同域名访问 API，请通过 `CORS_ORIGINS` 以逗号配置允许的准确来源；默认仅允许本机开发地址。
-- 部署命令会优先使用 `docker compose`，并在仅安装 v1 的环境回退到 `docker-compose`。
-- 保存 Docker 加速源会先原子写入配置并重启宿主机 Docker。页面会轮询恢复状态；若 Docker 未在限定时间内恢复，会回滚旧配置并安排恢复重启。该功能要求容器具备 Docker socket、宿主机命名空间与特权运行权限。
-
 ## 版本信息
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.1.1 | 2026-08-29 | 新增局域网 Apprise API 通知：支持 `/notify` 与完整通知端点、测试通知，并可选择部署、仓库、镜像、备份和 Docker 重启通知；统一为单一 Compose 运行配置并排除运行时数据。 |
 | v2.1.0 | 2026-08-28 | 仓库管理支持 Compose 与 Scripts 两种仓库类型；Compose 仓库仅将所选 `local_path` 导出到 `repos` 映射目录，Scripts 仓库仅将选中的 `.sh` 脚本导出到 `scripts` 映射目录，Git 缓存保存在 `data` 中；Scripts 不会出现在容器部署来源中。 |
 | v2.0.9 | 2026-08-27 | 检查更新后自动反推 `scripts` 挂载对应的宿主机绝对路径；提示用户先执行 `sudo -i`，再提供唯一的一行更新命令；修复更新脚本生成接口未返回脚本路径的问题；镜像管理新增 Docker `.tar` 包导入与镜像导出。 |
 | v2.0.8 | 2026-08-27 | 完成会话鉴权、bcrypt 密码迁移、管理员 API 与 WebSocket 权限校验；统一数据库事务与前端公共认证/请求逻辑；部署页改用 YAML 解析器并拆分部署流和网络模块；Docker 加速源增加重启恢复检测与回滚；新增 Ruff、ESLint、CI 和回归测试；新增前端缓存清理；修复登录 422、管理员添加用户、仪表盘快捷跳转、部署页仓库筛选/加载、Compose 文件宿主机映射路径解析及普通用户仪表盘权限显示问题。 |

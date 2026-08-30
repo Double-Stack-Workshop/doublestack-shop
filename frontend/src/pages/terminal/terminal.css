@@ -193,22 +193,22 @@ body {
     font-size: 14px;
 }
 
-.toolbar-btn#connectBtn:not(:disabled) {
-    background: #22c55e;
+.toolbar-btn#connectBtn:not(:disabled),
+.toolbar-btn#disconnectBtn:not(:disabled),
+.toolbar-btn#clearBtn:not(:disabled) {
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: #fff;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.toolbar-btn#connectBtn:not(:disabled):hover {
-    background: #16a34a;
-}
-
-.toolbar-btn#disconnectBtn:not(:disabled) {
-    background: #ef4444;
-    color: #fff;
-}
-
-.toolbar-btn#disconnectBtn:not(:disabled):hover {
-    background: #dc2626;
+.toolbar-btn#connectBtn:not(:disabled):hover,
+.toolbar-btn#disconnectBtn:not(:disabled):hover,
+.toolbar-btn#clearBtn:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
 }
 
 .terminal-wrapper {

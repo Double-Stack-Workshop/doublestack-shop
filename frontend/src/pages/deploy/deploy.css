@@ -92,26 +92,27 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 24px;
-    border: 2px solid #e2e8f0;
-    border-radius: 10px;
-    background: white;
-    color: #64748b;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
+    opacity: 0.78;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .mode-tab:hover {
-    border-color: #94a3b8;
-    background: #f8fafc;
+    opacity: 1;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
 }
 
 .mode-tab.active {
-    border-color: #6366f1;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    color: white;
+    opacity: 1;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
 }
 
 .mode-tab i {
@@ -719,6 +720,21 @@ body {
 .btn-success:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+}
+
+.deploy-save-btn,
+.deploy-deploy-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: none;
+    font-weight: 500;
+}
+
+.deploy-save-btn:hover:not(:disabled),
+.deploy-deploy-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
 }
 
 .btn-secondary {

@@ -582,6 +582,101 @@ body {
     color: #94a3b8;
 }
 
+.apprise-section {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+    padding: 24px;
+    margin-bottom: 30px;
+}
+
+.section-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.apprise-card {
+    max-width: 600px;
+}
+
+.apprise-section .form-group {
+    margin-bottom: 20px;
+}
+
+.apprise-section .form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.apprise-section .form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #1e293b;
+    transition: border-color 0.2s ease;
+    font-family: 'Courier New', monospace;
+}
+
+.apprise-section .form-group input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.notification-events {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 20px;
+    border: 0;
+    padding: 0;
+    margin: 4px 0 0;
+}
+
+.notification-events legend {
+    width: 100%;
+    margin-bottom: 12px;
+    color: #334155;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.notification-events label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #475569;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.notification-events input {
+    width: 16px;
+    height: 16px;
+    accent-color: #667eea;
+}
+
+.toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    color: #334155;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.toggle-label input {
+    width: 16px;
+    height: 16px;
+    accent-color: #667eea;
+}
+
 .placeholder-hint {
     display: inline-block;
     margin-top: 6px;

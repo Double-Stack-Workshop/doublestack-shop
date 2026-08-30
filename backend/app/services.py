@@ -11,6 +11,8 @@ import io
 import json
 import tarfile
 import tempfile
+from urllib.parse import quote, urlparse
+import requests
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import List, Dict, Optional, Generator
@@ -462,7 +464,6 @@ REPOS_DIR = Path(os.getenv("REPOS_DIR", APP_ROOT / "repos")).resolve()
 REPOS_DIR.mkdir(exist_ok=True)
 SCRIPTS_DIR = (APP_ROOT / "scripts").resolve()
 SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-SCRIPT_REPOS_DIR = SCRIPTS_DIR / "repos"  # 旧版 Scripts 仓库目录，仅用于迁移清理。
 MANAGED_APPLICATION_SCRIPT_NAMES = {"update_app.sh", "upgrade_docker_compose_to_v2.sh"}
 
 DATA_DIR = Path(os.getenv("DATA_DIR", APP_ROOT / "data")).resolve()
@@ -915,10 +916,6 @@ def clone_or_pull_repo(repo_url: str, branch: str, local_path: str, repo_type: s
                 # Migrate old full-repository checkouts out of the mounted deploy directory.
                 legacy_dir = REPOS_DIR / repo_name
                 if selected_path.parts and legacy_dir != repo_dir and (legacy_dir / ".git").exists():
-                    shutil.rmtree(legacy_dir, ignore_errors=True)
-            else:
-                legacy_dir = SCRIPT_REPOS_DIR / repo_name
-                if (legacy_dir / ".git").exists():
                     shutil.rmtree(legacy_dir, ignore_errors=True)
             return {
                 "success": True,
@@ -1454,6 +1451,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                         if pull_returncode != 0:
                             total_elapsed = round(time.time() - deploy_started_at, 1)
                             log_service.error(f"镜像拉取失败: {yml_file.name} - pull 阶段返回码 {pull_returncode}", 'deploy')
+                            notify_apprise("容器部署失败", f"{yml_file.name} 拉取镜像失败，返回码：{pull_returncode}。", "failure", "deploy")
                             yield {
                                 "type": "done",
                                 "success": False,
@@ -1526,6 +1524,12 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                             yield {"type": "log", "level": "success", "stage": "done", "message": success_log2, "ts": _now_iso()}
 
                             log_service.success(f"容器部署成功: {yml_file.name} (容器名: {container_name})", 'deploy', deployment_logs)
+                            notify_apprise(
+                                "容器部署成功",
+                                f"{yml_file.name} 已部署成功（容器：{container_name or '未知'}）。",
+                                "success",
+                                "deploy",
+                            )
 
                             total_elapsed = round(time.time() - deploy_started_at, 1)
                             yield {
@@ -1548,6 +1552,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                         else:
                             total_elapsed = round(time.time() - deploy_started_at, 1)
                             log_service.error(f"容器部署失败: {yml_file.name} - up 阶段返回码 {up_returncode}", 'deploy')
+                            notify_apprise("容器部署失败", f"{yml_file.name} 启动失败，返回码：{up_returncode}。", "failure", "deploy")
                             yield {
                                 "type": "done",
                                 "success": False,
@@ -1566,6 +1571,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                     except subprocess.TimeoutExpired:
                         total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"容器部署超时: {yml_file.name}", 'deploy')
+                        notify_apprise("容器部署超时", f"{yml_file.name} 部署超时。", "failure", "deploy")
                         yield {
                             "type": "done",
                             "success": False,
@@ -1584,6 +1590,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                     except FileNotFoundError:
                         total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"Docker Compose 命令未找到: {yml_file.name}", 'deploy')
+                        notify_apprise("容器部署失败", f"{yml_file.name} 部署失败：未找到 Docker Compose。", "failure", "deploy")
                         yield {
                             "type": "done",
                             "success": False,
@@ -1602,6 +1609,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
                     except Exception as e:
                         total_elapsed = round(time.time() - deploy_started_at, 1)
                         log_service.error(f"容器部署异常: {yml_file.name} - {str(e)}", 'deploy')
+                        notify_apprise("容器部署异常", f"{yml_file.name}：{str(e)}", "failure", "deploy")
                         yield {
                             "type": "done",
                             "success": False,
@@ -2203,6 +2211,7 @@ def pull_image(image_name: str) -> Generator[dict, None, None]:
             except Exception as e:
                 print(f"刷新镜像缓存失败: {e}")
             log_service.success(f"镜像拉取成功: {image_name}", 'image')
+            notify_apprise("镜像拉取成功", f"镜像“{image_name}”已拉取完成。", "success", "image")
             yield {
                 "type": "done",
                 "success": True,
@@ -2213,6 +2222,7 @@ def pull_image(image_name: str) -> Generator[dict, None, None]:
             }
         else:
             log_service.error(f"镜像拉取失败: {image_name} - 返回码 {returncode}", 'image')
+            notify_apprise("镜像拉取失败", f"镜像“{image_name}”拉取失败，返回码：{returncode}。", "failure", "image")
             yield {
                 "type": "done",
                 "success": False,
@@ -2223,16 +2233,18 @@ def pull_image(image_name: str) -> Generator[dict, None, None]:
             }
     except subprocess.TimeoutExpired:
         log_service.error(f"镜像拉取超时: {image_name}", 'image')
+        notify_apprise("镜像拉取超时", f"镜像“{image_name}”拉取超时。", "failure", "image")
         yield {"type": "done", "success": False, "message": "拉取操作超时",
                "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
     except FileNotFoundError:
+        notify_apprise("镜像拉取失败", f"镜像“{image_name}”拉取失败：Docker 命令不可用。", "failure", "image")
         yield {"type": "done", "success": False, "message": "Docker命令不可用",
                "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
     except Exception as e:
+        notify_apprise("镜像拉取失败", f"镜像“{image_name}”拉取失败：{str(e)}。", "failure", "image")
         yield {"type": "done", "success": False, "message": f"拉取失败: {str(e)}",
                "data": {"image_name": image_name}, "ts": _now_iso(), "elapsed_sec": 0.0}
 
-import requests
 
 def test_connectivity(url: str, timeout: int = 10) -> Dict:
     """测试网络连通性。
@@ -2443,6 +2455,117 @@ def test_all_connectivity() -> Dict:
 def get_proxy_config() -> Dict:
     """获取当前代理配置"""
     return proxy_config.copy()
+
+
+_APPRISE_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_APPRISE_EVENT_KEYS = ("deploy", "repo", "image", "backup", "docker")
+
+
+def get_apprise_config() -> Dict[str, object]:
+    """获取 Apprise API 通知配置。"""
+    url = get_setting("apprise_url", "").strip()
+    key = get_setting("apprise_key", "").strip()
+    enabled = get_setting("apprise_enabled", "false").lower() == "true"
+    try:
+        saved_events = json.loads(get_setting("apprise_events", "{}"))
+    except (TypeError, json.JSONDecodeError):
+        saved_events = {}
+    events = {
+        event: bool(saved_events.get(event, True))
+        for event in _APPRISE_EVENT_KEYS
+    }
+    return {"url": url, "key": key, "enabled": enabled, "events": events}
+
+
+def _get_apprise_notify_url(url: str, key: str) -> str:
+    """使用官方默认 /notify；填写配置键时才使用有状态通知端点。"""
+    normalized_url = url.strip().rstrip("/")
+    parsed = urlparse(normalized_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Apprise 地址必须是有效且不含账号密码的 HTTP/HTTPS 地址")
+
+    path = parsed.path.rstrip("/")
+    if path == "/notify" or path.startswith("/notify/"):
+        return normalized_url
+    notify_path = "/notify"
+    if key:
+        notify_path = f"{notify_path}/{quote(key, safe='')}"
+    return f"{normalized_url}{notify_path}"
+
+
+def set_apprise_config(
+    url: str = "", key: str = "", enabled: bool = False,
+    events: Optional[Dict[str, bool]] = None,
+) -> Dict:
+    """保存 Apprise 通知设置；启用时要求可解析的局域网服务地址。"""
+    normalized_url = url.strip().rstrip("/")
+    normalized_key = key.strip()
+    if normalized_key and not _APPRISE_KEY_RE.fullmatch(normalized_key):
+        return {"success": False, "message": "Apprise 配置键只能包含字母、数字、点、下划线和连字符"}
+    if enabled:
+        try:
+            _get_apprise_notify_url(normalized_url, normalized_key)
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
+
+    set_setting("apprise_url", normalized_url)
+    set_setting("apprise_key", normalized_key)
+    set_setting("apprise_enabled", "true" if enabled else "false")
+    if events is not None:
+        normalized_events = {
+            event: bool(events.get(event, False))
+            for event in _APPRISE_EVENT_KEYS
+        }
+        set_setting("apprise_events", json.dumps(normalized_events))
+    log_service.info(f"Apprise 通知配置已{'启用' if enabled else '停用'}", "system")
+    return {"success": True, "message": "Apprise 通知配置已保存", "data": get_apprise_config()}
+
+
+def _post_apprise_notification(title: str, body: str, level: str = "info") -> Dict:
+    config = get_apprise_config()
+    if not config["enabled"]:
+        return {"success": False, "message": "Apprise 通知未启用"}
+    try:
+        notify_url = _get_apprise_notify_url(str(config["url"]), str(config["key"]))
+        session = requests.Session()
+        # Apprise 是局域网服务，避免系统代理导致本地通知绕到外网或不可达。
+        session.trust_env = False
+        response = session.post(
+            notify_url,
+            json={"title": title, "body": body, "type": level, "format": "text"},
+            timeout=(3, 10),
+        )
+        if response.status_code == 200:
+            return {"success": True, "message": "通知已发送"}
+        if response.status_code == 204:
+            return {"success": False, "message": "Apprise 未找到可用的通知配置"}
+        return {"success": False, "message": f"Apprise 返回 HTTP {response.status_code}"}
+    except requests.RequestException as exc:
+        return {"success": False, "message": f"无法连接 Apprise 服务: {exc}"}
+
+
+def notify_apprise(title: str, body: str, level: str = "info", category: str = "deploy") -> None:
+    """异步发送业务通知，通知故障不会影响部署等主流程。"""
+    config = get_apprise_config()
+    if not config["enabled"] or not config["events"].get(category, True):
+        return
+
+    def send() -> None:
+        result = _post_apprise_notification(title, body, level)
+        if not result["success"]:
+            log_service.warning(f"Apprise 通知发送失败: {result['message']}", "system")
+
+    threading.Thread(target=send, name="apprise-notify", daemon=True).start()
+
+
+def test_apprise_notification() -> Dict:
+    """同步发送测试消息，使设置页能给出即时可见的连接结果。"""
+    return _post_apprise_notification(
+        "双栈商店测试通知",
+        "Apprise 通知配置可用，后续部署结果将推送到此处。",
+        "success",
+    )
+
 
 def get_current_repo() -> str:
     """获取当前系统仓库"""

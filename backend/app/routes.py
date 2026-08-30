@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, File, HTTPException, Request, UploadFile,
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from .schemas import (
     AddRepoRequest, CreateNetworkRequest, CurrentRepoRequest, DeployRequest,
-    DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
+    AppriseConfigRequest, DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
     LoginRequest, ProxyRequest, PullImageRequest, RegisterRequest, CreateUserRequest,
     SaveFileRequest, UpdatePasswordRequest,
 )
@@ -43,6 +43,10 @@ from .services import (
     test_all_connectivity,
     get_proxy_config,
     set_proxy_config,
+    get_apprise_config,
+    set_apprise_config,
+    test_apprise_notification,
+    notify_apprise,
     create_container_backup,
     get_all_backups_list,
     get_backups_for_container,
@@ -289,8 +293,11 @@ async def read_repo(repo_name: str):
 async def sync_repo_endpoint(repo_name: str):
     result = await asyncio.to_thread(sync_repo, repo_name)
     if result["success"]:
+        count = result.get("data", {}).get("file_count", 0)
+        notify_apprise("仓库同步成功", f"仓库“{repo_name}”同步完成，发现 {count} 个文件。", "success", "repo")
         return result
-    elif result["status"] == "error":
+    notify_apprise("仓库同步失败", f"仓库“{repo_name}”同步失败：{result.get('message', '未知错误')}。", "failure", "repo")
+    if result.get("status") == "error":
         return result
     raise HTTPException(status_code=404, detail="仓库不存在")
 
@@ -767,6 +774,27 @@ async def update_proxy(request: ProxyRequest):
     result = set_proxy_config(request.http_proxy, request.https_proxy)
     return result
 
+
+@router.get("/apprise")
+async def get_apprise():
+    """获取 Apprise 局域网通知配置。"""
+    return {"success": True, "data": get_apprise_config()}
+
+
+@router.put("/apprise")
+async def update_apprise(request: AppriseConfigRequest):
+    """更新 Apprise 通知配置。"""
+    return set_apprise_config(request.url, request.key, request.enabled, request.events)
+
+
+@router.post("/apprise/test")
+async def test_apprise():
+    """发送一条 Apprise 测试通知。"""
+    result = test_apprise_notification()
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
 # 当前系统仓库相关路由
 @router.get("/current-repo")
 async def get_current_repo_route():
@@ -828,6 +856,7 @@ async def _monitor_docker_restart(previous_config: dict) -> None:
     }
     if recovered:
         log_service.success("Docker 重启完成，服务已恢复", 'system')
+        notify_apprise("Docker 服务已恢复", "Docker 加速源配置生效，Docker 服务已恢复。", "success", "docker")
         return
 
     try:
@@ -837,9 +866,11 @@ async def _monitor_docker_restart(previous_config: dict) -> None:
         if not rollback["success"]:
             docker_restart_status["message"] += f"；恢复重启任务创建失败：{rollback['message']}"
         log_service.error(docker_restart_status["message"], 'system')
+        notify_apprise("Docker 重启失败", docker_restart_status["message"], "failure", "docker")
     except (OSError, TypeError, ValueError) as exc:
         docker_restart_status["message"] += f"；回滚失败：{exc}"
         log_service.error(docker_restart_status["message"], 'system')
+        notify_apprise("Docker 重启失败", docker_restart_status["message"], "failure", "docker")
 
 @router.get("/docker-mirrors")
 async def get_docker_mirrors():
@@ -877,6 +908,7 @@ async def update_docker_mirrors(request: DockerMirrorsRequest):
         if not restart_result["success"]:
             _write_daemon_config(previous_config)
             log_service.error(f"Docker 加速源已保存，但重启任务创建失败: {restart_result['message']}", 'system')
+            notify_apprise("Docker 重启失败", f"重启任务未创建，已回滚加速源配置：{restart_result['message']}。", "failure", "docker")
             return {
                 "success": False,
                 "message": f"未能创建 Docker 重启任务，已还原原加速源配置：{restart_result['message']}",
@@ -929,9 +961,11 @@ async def create_backup_endpoint(container_id: str):
     """创建容器备份"""
     result = create_container_backup(container_id)
     if result["success"]:
+        container_name = result.get("data", {}).get("container_name", container_id[:12])
+        notify_apprise("容器备份成功", f"容器“{container_name}”备份已创建。", "success", "backup")
         return result
-    else:
-        return result
+    notify_apprise("容器备份失败", f"容器 {container_id[:12]} 备份失败：{result.get('message', '未知错误')}。", "failure", "backup")
+    return result
 
 @router.get("/backups")
 async def list_backups():
@@ -967,9 +1001,11 @@ async def restore_backup_endpoint(backup_id: int):
     """恢复备份"""
     result = restore_backup(backup_id)
     if result["success"]:
+        container_name = result.get("data", {}).get("container_name", "")
+        notify_apprise("容器备份恢复成功", f"容器“{container_name or backup_id}”已从备份恢复。", "success", "backup")
         return result
-    else:
-        return result
+    notify_apprise("容器备份恢复失败", f"备份 #{backup_id} 恢复失败：{result.get('message', '未知错误')}。", "failure", "backup")
+    return result
 
 @router.get("/backups/{backup_id}/download")
 async def download_backup_endpoint(backup_id: int):

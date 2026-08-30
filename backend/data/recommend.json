@@ -1,0 +1,115 @@
+{
+    "_tutorial_base_url": "https://blog.doublestack.top/archives/",
+    "qbittorrent": {
+        "title": "qBittorrent",
+        "subtitle": "轻量级 BitTorrent 客户端",
+        "description": "功能强大的开源 BitTorrent 客户端，支持远程管理、RSS订阅、Web UI 等功能。",
+        "tags": ["下载工具", "BT"],
+        "tutorial": "fei-niu-nasbu-shu-qbittorrentxia-zai-qi"
+    },
+    "transmission": {
+        "title": "Transmission",
+        "subtitle": "快速轻量级 BT 客户端",
+        "description": "开源的 BitTorrent 客户端，以简洁高效著称，支持 Web 界面远程管理。",
+        "tags": ["下载工具", "BT"],
+        "tutorial": "fei-niu-nasbu-shu-transmissionxia-zai-qi"
+    },
+    "emby": {
+        "title": "Emby",
+        "subtitle": "个人媒体服务器",
+        "description": "强大的媒体服务器，支持自动刮削元数据、多设备播放、实时转码、直播电视等功能。",
+        "tags": ["媒体", "影音"],
+        "tutorial": "fei-niu-nasbu-shu-embymei-ti-fu-wu-qi"
+    },
+    "moviepilot": {
+        "title": "MoviePilot",
+        "subtitle": "智能媒体库管理工具",
+        "description": "NAS 媒体库自动化管理工具，支持自动订阅、刮削、整理、通知等功能。",
+        "tags": ["媒体", "自动化"],
+        "tutorial": "fei-niu-nasbu-shu-moviepilotmei-ti-guan-li"
+    },
+    "navidrome": {
+        "title": "Navidrome",
+        "subtitle": "现代音乐流媒体服务器",
+        "description": "开源的音乐流媒体服务器，支持 Subsonic API，可在线播放和管理个人音乐库。",
+        "tags": ["音乐", "流媒体"],
+        "tutorial": "docker-rong-qi-navidrome-bu-shu-jiao-cheng"
+    },
+    "openlist": {
+        "title": "OpenList",
+        "subtitle": "网盘文件列表程序",
+        "description": "支持多种网盘的文件列表程序，可统一管理阿里云盘、百度网盘、天翼云盘等。",
+        "tags": ["网盘", "文件管理"],
+        "tutorial": "docker-rong-qi-openlist-bu-shu-jiao-cheng"
+    },
+    "apprise": {
+        "title": "Apprise",
+        "subtitle": "多渠道消息通知网关",
+        "description": "轻量开源通知微服务，支持 Telegram、企业微信、Server酱 等上百种推送渠道。",
+        "tags": ["通知", "告警"],
+        "tutorial": ""
+    },
+    "flaresolverr": {
+        "title": "FlareSolverr",
+        "subtitle": "Cloudflare 验证绕过服务",
+        "description": "解决网站 Cloudflare 人机验证，供爬虫、媒体工具调用解锁访问限制。",
+        "tags": ["网络", "反爬"],
+        "tutorial": ""
+    },
+    "iptv": {
+        "title": "IPTV",
+        "subtitle": "IPTV 流媒体服务",
+        "description": "自托管 IPTV 直播源管理系统，在线收看电视直播节目。",
+        "tags": ["影音", "直播"],
+        "tutorial": ""
+    },
+    "lucky": {
+        "title": "Lucky",
+        "subtitle": "DDNS 与内网穿透工具",
+        "description": "集动态域名解析、反向代理、证书管理、内网穿透于一身的全能网络工具。",
+        "tags": ["网络", "DDNS"],
+        "tutorial": ""
+    },
+    "mdc-ng": {
+        "title": "MDC‑NG",
+        "subtitle": "影视元数据刮削工具",
+        "description": "本地媒体文件元数据搜刮器，自动生成封面、简介等媒体信息。",
+        "tags": ["媒体", "刮削"],
+        "tutorial": ""
+    },
+    "npc": {
+        "title": "NPC",
+        "subtitle": "内网穿透服务端",
+        "description": "高性能内网穿透工具，把局域网服务暴露至公网访问，自带Web管理面板。",
+        "tags": ["网络", "内网穿透"],
+        "tutorial": ""
+    },
+    "openlist-strm": {
+        "title": "OpenList‑Strm",
+        "subtitle": "网盘Strm生成工具",
+        "description": "网盘转Strm文件生成程序，一键生成媒体库可识别的远程播放文件。",
+        "tags": ["网盘", "媒体"],
+        "tutorial": ""
+    },
+    "pansou-api": {
+        "title": "盘搜‑API",
+        "subtitle": "网盘搜索后端接口",
+        "description": "网盘资源搜索后端服务，提供搜索接口供前端调用。",
+        "tags": ["网盘", "搜索"],
+        "tutorial": ""
+    },
+    "pansou-web": {
+        "title": "盘搜‑Web",
+        "subtitle": "网盘搜索网页前端",
+        "description": "网盘资源搜索网页界面，搭配盘搜‑API实现资源检索。",
+        "tags": ["网盘", "搜索"],
+        "tutorial": ""
+    },
+    "uptime-kuma": {
+        "title": "Uptime‑Kuma",
+        "subtitle": "站点监控告警面板",
+        "description": "开源轻量站点监控工具，检测网站、服务在线状态，异常时推送告警通知。",
+        "tags": ["监控", "告警"],
+        "tutorial": ""
+    }
+}

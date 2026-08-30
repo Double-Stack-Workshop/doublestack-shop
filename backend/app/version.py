@@ -1,3 +1,3 @@
-VERSION = "v2.1.0"
+VERSION = "v2.1.1"
 DOCKERHUB_REPO = "lastthree/doublestack-shop"
-BUILD_DATE = "2026-08-28"
+BUILD_DATE = "2026-08-29"

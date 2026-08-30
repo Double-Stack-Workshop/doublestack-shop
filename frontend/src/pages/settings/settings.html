@@ -70,7 +70,7 @@
                     <div class="domain-info">
                         <div class="form-group">
                             <label for="globalDomain">全局域名/IP地址</label>
-                            <input type="text" id="globalDomain" placeholder="例如: xxx.xxx.xxx.xxx 或 https://example.com">
+                            <input type="text" id="globalDomain" placeholder="例如: localhost:port 或 https://example.com">
                         </div>
                     </div>
                 </div>
@@ -96,6 +96,41 @@
                             <input type="text" id="httpsProxy" placeholder="https://localhost:port">
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <section class="apprise-section">
+                <div class="section-header">
+                    <h2>Apprise 通知</h2>
+                    <div class="section-actions">
+                        <button id="testAppriseBtn" class="save-btn" type="button" onclick="testAppriseNotification()">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>发送测试通知</span>
+                        </button>
+                        <button id="saveAppriseBtn" class="save-btn" onclick="saveAppriseConfig()">
+                            <i class="fas fa-save"></i>
+                            <span>保存配置</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="apprise-card">
+                    <label class="toggle-label" for="appriseEnabled">
+                        <input type="checkbox" id="appriseEnabled">
+                        <span>启用通知</span>
+                    </label>
+                    <div class="form-group">
+                        <label for="appriseUrl">Apprise 通知地址</label>
+                        <input type="url" id="appriseUrl" placeholder="http://localhost:port/notify/{key}">
+                    </div>
+                    <fieldset class="notification-events">
+                        <legend>通知类型</legend>
+                        <label><input type="checkbox" name="appriseEvent" value="deploy"> 容器部署</label>
+                        <label><input type="checkbox" name="appriseEvent" value="repo"> 仓库同步</label>
+                        <label><input type="checkbox" name="appriseEvent" value="image"> 镜像拉取</label>
+                        <label><input type="checkbox" name="appriseEvent" value="backup"> 容器备份与恢复</label>
+                        <label><input type="checkbox" name="appriseEvent" value="docker"> Docker 服务重启</label>
+                    </fieldset>
                 </div>
             </section>
             
