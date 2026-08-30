@@ -5,9 +5,6 @@ __pycache__/
 *.sqlite
 *.sqlite3
 data/
-!backend/data/
-!backend/data/repos.json
-!backend/data/recommend.json
 backend/repos/*
 backend/scripts/*
 backend/backup/*

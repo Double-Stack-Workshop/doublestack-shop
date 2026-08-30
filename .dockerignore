@@ -14,10 +14,8 @@ env/
 frontend/node_modules/
 tests/
 
-# 本地运行时数据；仅保留镜像启动所需的默认仓库与推荐配置。
+# 本地运行时数据。
 backend/data/*
-!backend/data/repos.json
-!backend/data/recommend.json
 backend/repos/
 backend/scripts/
 backend/backup/

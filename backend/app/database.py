@@ -81,7 +81,7 @@ def init_db():
         )
     ''')
     
-    # 仓库配置已统一存储在 data/repos.json；清理旧版未使用的 SQLite 表。
+    # 仓库配置运行时存储在 data/repos.json；清理旧版未使用的 SQLite 表。
     cursor.execute('DROP TABLE IF EXISTS repos')
     
     cursor.execute('''

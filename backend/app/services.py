@@ -469,9 +469,11 @@ MANAGED_APPLICATION_SCRIPT_NAMES = {"update_app.sh", "upgrade_docker_compose_to_
 DATA_DIR = Path(os.getenv("DATA_DIR", APP_ROOT / "data")).resolve()
 DATA_DIR.mkdir(exist_ok=True)
 REPOS_JSON_PATH = DATA_DIR / "repos.json"
+INITIAL_REPOS_JSON_PATH = APP_ROOT / "repos.json"
 REPO_CACHE_DIR = DATA_DIR / "repo-cache"
 REPO_CACHE_DIR.mkdir(exist_ok=True)
 SCRIPT_REPOS_STATE_PATH = DATA_DIR / "script-repos-state.json"
+REPO_SYNC_STATE_PATH = DATA_DIR / "repo-sync-state.json"
 
 from .database import (
     get_proxy_config as db_get_proxy_config,
@@ -496,6 +498,22 @@ def _read_json_config(path: Path, expected_type: type, label: str):
     return data
 
 
+def _ensure_runtime_config(target: Path, initial: Path, label: str) -> bool:
+    """首次启动时将镜像内置 JSON 种子复制到可持久化的数据目录。"""
+    if target.exists():
+        return True
+    if not initial.exists():
+        print(f"初始化 {label} 失败: 未找到镜像内置配置")
+        return False
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(initial, target)
+        return True
+    except OSError as exc:
+        print(f"初始化 {label} 失败: {exc}")
+        return False
+
+
 def _repo_sync_timestamp(path: Optional[Path] = None) -> str:
     """返回仓库目录的实际修改时间；新同步完成时使用当前 UTC+8 时间。"""
     if path is not None:
@@ -514,8 +532,7 @@ def _repo_sync_timestamp(path: Optional[Path] = None) -> str:
 
 def load_repos_config() -> List[Dict]:
     """读取唯一的 repos.json 配置源。"""
-    if not REPOS_JSON_PATH.exists():
-        print("读取 repos.json 失败: 文件不存在")
+    if not _ensure_runtime_config(REPOS_JSON_PATH, INITIAL_REPOS_JSON_PATH, "repos.json"):
         return []
     return _read_json_config(REPOS_JSON_PATH, list, "repos.json") or []
 
@@ -541,6 +558,7 @@ def save_repos_config(repos_list: List[Dict]) -> bool:
         return False
 
 RECOMMEND_JSON_PATH = DATA_DIR / "recommend.json"
+INITIAL_RECOMMEND_JSON_PATH = APP_ROOT / "recommend.json"
 
 def _resolve_recommend_tutorials(raw: Dict) -> Dict:
     """将配置里的短路径 tutorial 与 _tutorial_base_url 拼接，并移除公用配置字段"""
@@ -562,8 +580,9 @@ def _resolve_recommend_tutorials(raw: Dict) -> Dict:
 
 def load_recommend_config() -> Dict:
     """读取唯一的 recommend.json 配置源。"""
-    if not RECOMMEND_JSON_PATH.exists():
-        print("读取 recommend.json 失败: 文件不存在")
+    if not _ensure_runtime_config(
+        RECOMMEND_JSON_PATH, INITIAL_RECOMMEND_JSON_PATH, "recommend.json"
+    ):
         return {}
     config = _read_json_config(RECOMMEND_JSON_PATH, dict, "recommend.json")
     return _resolve_recommend_tutorials(config or {})
@@ -606,7 +625,9 @@ def _load_repos_from_json():
                 except Exception:
                     yml_files = []
                 # Compose 只导出所选目录，Git 元数据保存在 data/repo-cache。
-                last_sync = _repo_sync_timestamp(repo_dir)
+                last_sync = _get_repo_sync_time(
+                    repo_url, branch, local_path, repo_type, repo_dir
+                )
             else:
                 status = "pending"
 
@@ -664,6 +685,54 @@ def _normalize_repo_local_path(local_path: str) -> PurePosixPath:
 def _script_repo_state_key(repo_url: str, branch: str, local_path: str) -> str:
     raw = f"{repo_url}\n{branch}\n{local_path}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _repo_sync_state_key(
+    repo_url: str, branch: str, local_path: str, repo_type: str
+) -> str:
+    raw = f"{repo_type}\n{repo_url}\n{branch}\n{local_path}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _load_repo_sync_state() -> Dict[str, str]:
+    try:
+        state = json.loads(REPO_SYNC_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(state, dict):
+        return {}
+    return {key: value for key, value in state.items() if isinstance(value, str)}
+
+
+def _save_repo_sync_state(state: Dict[str, str]) -> None:
+    REPO_SYNC_STATE_PATH.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _get_repo_sync_time(
+    repo_url: str, branch: str, local_path: str, repo_type: str, repo_dir: Path
+) -> str:
+    state_key = _repo_sync_state_key(repo_url, branch, local_path, repo_type)
+    return _load_repo_sync_state().get(state_key) or _repo_sync_timestamp(repo_dir)
+
+
+def _record_repo_sync_time(
+    repo_url: str, branch: str, local_path: str, repo_type: str
+) -> str:
+    timestamp = _repo_sync_timestamp()
+    state = _load_repo_sync_state()
+    state[_repo_sync_state_key(repo_url, branch, local_path, repo_type)] = timestamp
+    _save_repo_sync_state(state)
+    return timestamp
+
+
+def _delete_repo_sync_time(
+    repo_url: str, branch: str, local_path: str, repo_type: str
+) -> None:
+    state = _load_repo_sync_state()
+    state.pop(_repo_sync_state_key(repo_url, branch, local_path, repo_type), None)
+    _save_repo_sync_state(state)
 
 
 def _load_script_repos_state() -> Dict[str, List[str]]:
@@ -1089,7 +1158,7 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
         branch=branch,
         local_path=local_path,
         yml_files=yml_files,
-        last_sync=_repo_sync_timestamp(),
+        last_sync=_record_repo_sync_time(repo_url, branch, local_path, repo_type),
         status="active",
         repo_dir_name=actual_repo_dir_name,
         repo_type=repo_type,
@@ -1140,7 +1209,9 @@ def sync_repo(repo_name: str) -> Dict:
                     repo_dir, repo.local_path, repo.repo_type, repo.url, repo.branch
                 )
                 repo.status = "active"
-                repo.last_sync = _repo_sync_timestamp()
+                repo.last_sync = _record_repo_sync_time(
+                    repo.url, repo.branch, repo.local_path, repo.repo_type
+                )
                 repos_db[i] = repo
                 
                 # yml_files、last_sync 和 status 是运行时字段，不写入 JSON。
@@ -1245,6 +1316,9 @@ def delete_repo(repo_name: str) -> bool:
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
             repos_db.pop(i)
+            _delete_repo_sync_time(
+                repo.url, repo.branch, repo.local_path, repo.repo_type
+            )
             # 从 JSON 删除
             try:
                 current_json = load_repos_config()

@@ -805,7 +805,7 @@ async def set_current_repo_route(request: CurrentRepoRequest):
 # 容器推荐配置路由
 @router.get("/recommend-config")
 async def get_recommend_config_route():
-    """获取容器推荐配置（从 data/recommend.json 读取）"""
+    """获取容器推荐配置（从运行时 data/recommend.json 读取）"""
     config = load_recommend_config()
     return {"success": True, "data": config}
 
