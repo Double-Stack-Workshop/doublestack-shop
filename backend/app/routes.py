@@ -9,7 +9,7 @@ from .schemas import (
     AddRepoRequest, CreateNetworkRequest, CurrentRepoRequest, DeployRequest,
     AppriseConfigRequest, DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
     LoginRequest, ProxyRequest, PullImageRequest, RegisterRequest, CreateUserRequest,
-    SaveFileRequest, UpdatePasswordRequest,
+    SaveFileRequest, UpdatePasswordRequest, ChangePasswordRequest,
 )
 from .terminal import terminal_manager
 from .version import VERSION, DOCKERHUB_REPO, BUILD_DATE
@@ -81,6 +81,7 @@ from .database import (
     delete_user_session,
     get_user_by_session,
     password_hash_needs_upgrade,
+    change_initial_password,
 )
 from .logger import log_service
 
@@ -154,6 +155,7 @@ async def login(request: Request, credentials: LoginRequest):
                 "username": user['username'],
                 "email": user['email'],
                 "is_admin": user['is_admin'],
+                "must_change_password": user['must_change_password'],
                 "created_at": user['created_at']
             }
         })
@@ -186,11 +188,30 @@ async def get_current_user(request: Request):
     """返回由服务端会话确认的当前用户，前端不得自行推断管理员身份。"""
     return {"success": True, "data": request.state.user}
 
+
+@router.post("/change-password")
+async def change_password(request: Request, credentials: ChangePasswordRequest):
+    user = request.state.user
+    if not user['is_admin'] or not user['must_change_password']:
+        raise HTTPException(status_code=403, detail="该接口仅用于管理员首次改密")
+    username = user['username']
+    if _is_login_locked(request, username):
+        raise HTTPException(status_code=429, detail="尝试过多，请 15 分钟后再试")
+    try:
+        change_initial_password(username, credentials.new_password)
+    except ValueError as exc:
+        _record_login_failure(request, username)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _login_attempts.pop(_login_key(request, username), None)
+    response = JSONResponse(content={"success": True, "message": "密码修改成功，请使用新密码重新登录"})
+    response.delete_cookie("session_token", path="/")
+    return response
+
 @router.post("/register")
 async def register(request: RegisterRequest):
     if not verify_admin_password(request.admin_password):
         log_service.warning(f"用户注册失败: {request.username} - 管理员密码错误", 'auth')
-        return {"success": False, "message": "管理员密码不正确"}
+        return {"success": False, "message": "管理员密码不正确或尚未完成首次改密"}
     
     if create_user(request.username, request.password, None, is_admin=False):
         log_service.success(f"用户注册成功: {request.username}", 'auth')
@@ -212,7 +233,7 @@ async def create_user_endpoint(request: CreateUserRequest):
 @router.post("/users/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest):
     if not verify_admin_password(request.admin_password):
-        return {"success": False, "message": "管理员密码不正确"}
+        return {"success": False, "message": "管理员密码不正确或尚未完成首次改密"}
     
     if len(request.new_password) < 6:
         return {"success": False, "message": "密码长度至少为6位"}
@@ -318,7 +339,13 @@ async def update_file_content(repo_name: str, file_name: str, request: SaveFileR
 
 @router.delete("/repos/{repo_name}")
 async def remove_repo(repo_name: str):
-    if delete_repo(repo_name):
+    try:
+        deleted = delete_repo(repo_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if deleted:
         return {"success": True, "message": "仓库已删除"}
     raise HTTPException(status_code=404, detail="仓库不存在")
 
@@ -720,6 +747,9 @@ async def websocket_terminal(websocket: WebSocket):
     user = get_user_by_session(websocket.cookies.get("session_token"))
     if not user or not user["is_admin"]:
         await websocket.close(code=1008, reason="需要管理员登录")
+        return
+    if user['must_change_password']:
+        await websocket.close(code=1008, reason="首次登录必须修改管理员密码")
         return
     await websocket.accept()
 

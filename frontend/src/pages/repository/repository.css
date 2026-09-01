@@ -1016,6 +1016,9 @@ div.repo-status.error .status-dot {
 .repo-card .sync-btn:hover { background: #ecfeff; color: #0891b2; }
 .repo-card .set-current-btn { color: #f59e0b; }
 .repo-card .set-current-btn:hover, .repo-card .set-current-btn.active { background: #fffbeb; color: #d97706; border: 0; }
+.repo-card .delete-btn { color: #dc2626; }
+.repo-card .delete-btn:hover:not(:disabled) { background: #fef2f2; color: #b91c1c; }
+.repo-card .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 900px) {
     .stats-bar { flex-wrap: wrap; }

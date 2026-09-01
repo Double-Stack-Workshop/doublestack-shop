@@ -54,12 +54,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     localStorage.removeItem('remember');
                 }
                 
-                showMessage('登录成功，正在跳转...', 'success');
+                const mustChangePassword = result.data.must_change_password;
+                showMessage(mustChangePassword ? '首次登录，请先修改管理员密码' : '登录成功，正在跳转...', 'success');
                 setTimeout(() => {
-                    window.location.href = '../../pages/dashboard/dashboard.html';
+                    window.location.href = mustChangePassword
+                        ? '/src/pages/change-password/change-password.html'
+                        : '/src/pages/dashboard/dashboard.html';
                 }, 1500);
             } else {
-                showMessage(result.message || '登录失败', 'error');
+                showMessage(result.message || result.detail || '登录失败', 'error');
                 showLoading(false);
             }
         } catch (error) {

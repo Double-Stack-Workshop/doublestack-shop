@@ -7,6 +7,7 @@
     <link rel="icon" href="/src/images/logo.png" type="image/png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/components/common/buttons.css">
     <link rel="stylesheet" href="settings.css">
 </head>
 <body>
@@ -70,7 +71,7 @@
                     <div class="domain-info">
                         <div class="form-group">
                             <label for="globalDomain">全局域名/IP地址</label>
-                            <input type="text" id="globalDomain" placeholder="例如: localhost:port 或 https://example.com">
+                            <input type="text" id="globalDomain" placeholder="localhost 或 https://example.com">
                         </div>
                     </div>
                 </div>
@@ -97,6 +98,34 @@
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <section class="ai-settings-section" id="aiSettings">
+                <form id="aiConfigForm">
+                    <div class="section-header">
+                        <h2>OpenAI配置</h2>
+                        <div class="section-actions ai-config-actions">
+                            <button type="button" class="save-btn" id="testAiBtn" disabled><i class="fas fa-paper-plane" aria-hidden="true"></i><span>测试连接</span></button>
+                            <button type="submit" class="save-btn" id="saveAiBtn" disabled><i class="fas fa-save" aria-hidden="true"></i><span>保存配置</span></button>
+                        </div>
+                    </div>
+                    <fieldset id="aiConfigFields" disabled>
+                        <label class="ai-toggle-label"><input type="checkbox" id="aiEnabled"> 启用 AI 对话</label>
+                        <div class="form-group">
+                            <label for="aiBaseUrl">Base URL</label>
+                            <input type="url" id="aiBaseUrl" required maxlength="2048" placeholder="https://api.openai.com/v1">
+                        </div>
+                        <div class="form-group">
+                            <label for="aiModel">模型名称</label>
+                            <input type="text" id="aiModel" maxlength="200" placeholder="Qwen/Qwen3.5-27B">
+                        </div>
+                        <div class="form-group">
+                            <label for="aiApiKey">API Key</label>
+                            <input type="password" id="aiApiKey" maxlength="4096" autocomplete="new-password" placeholder="填写 API Key">
+                        </div>
+                    </fieldset>
+                    <p id="aiConfigStatus" class="ai-config-status" role="status" aria-live="polite">正在读取 AI 配置…</p>
+                </form>
             </section>
 
             <section class="apprise-section">
@@ -249,5 +278,6 @@
     <script src="/src/components/common/page-common.js"></script>
     <script src="/src/components/common/cache.js"></script>
     <script src="settings.js"></script>
+    <script src="settings-ai.js"></script>
 </body>
 </html>

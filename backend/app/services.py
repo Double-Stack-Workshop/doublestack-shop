@@ -1199,7 +1199,24 @@ def add_repo(repo_url: str, branch: str, local_path: str, name: Optional[str] = 
 
 def sync_repo(repo_name: str) -> Dict:
     _ensure_repos_loaded()
-    for i, repo in enumerate(repos_db):
+    repo = next((item for item in repos_db if item.name == repo_name), None)
+    if not repo:
+        return {"success": False, "message": "仓库不存在", "status": "error"}
+    if repo.status == 'syncing':
+        return {"success": False, "message": "仓库正在同步，请稍后再试", "status": "error"}
+    repo.status = 'syncing'
+    try:
+        result = _sync_repo(repo_name)
+        repo.status = 'active' if result['success'] else 'error'
+        return result
+    except Exception:
+        repo.status = 'error'
+        raise
+
+
+def _sync_repo(repo_name: str) -> Dict:
+    _ensure_repos_loaded()
+    for repo in repos_db:
         if repo.name == repo_name:
             result = clone_or_pull_repo(repo.url, repo.branch, repo.local_path, repo.repo_type)
             
@@ -1208,11 +1225,9 @@ def sync_repo(repo_name: str) -> Dict:
                 repo.yml_files = scan_repo_files(
                     repo_dir, repo.local_path, repo.repo_type, repo.url, repo.branch
                 )
-                repo.status = "active"
                 repo.last_sync = _record_repo_sync_time(
                     repo.url, repo.branch, repo.local_path, repo.repo_type
                 )
-                repos_db[i] = repo
                 
                 # yml_files、last_sync 和 status 是运行时字段，不写入 JSON。
                 
@@ -1315,17 +1330,21 @@ def delete_repo(repo_name: str) -> bool:
     _ensure_repos_loaded()
     for i, repo in enumerate(repos_db):
         if repo.name == repo_name:
+            if repo.status == 'syncing':
+                raise ValueError('仓库正在同步，请完成后再删除')
+            current_json = _read_json_config(REPOS_JSON_PATH, list, 'repos.json')
+            if current_json is None:
+                raise OSError('无法读取仓库配置，删除未完成')
+            remaining = [r for r in current_json if r.get('name') != repo_name]
+            if not save_repos_config(remaining):
+                raise OSError('无法保存仓库配置，删除未完成')
             repos_db.pop(i)
-            _delete_repo_sync_time(
-                repo.url, repo.branch, repo.local_path, repo.repo_type
-            )
-            # 从 JSON 删除
+            if get_current_repo() == repo_name:
+                set_setting('current_repo', '')
             try:
-                current_json = load_repos_config()
-                current_json = [r for r in current_json if r.get("name") != repo_name]
-                save_repos_config(current_json)
-            except Exception as e:
-                print(f"从 repos.json 删除仓库失败: {e}")
+                _delete_repo_sync_time(repo.url, repo.branch, repo.local_path, repo.repo_type)
+            except OSError as exc:
+                log_service.warning(f"仓库已删除，但清理同步时间失败: {exc}", 'system')
             log_service.warning(f"仓库已删除: {repo_name}", 'system')
             return True
     log_service.warning(f"删除仓库失败: {repo_name} - 仓库不存在", 'system')

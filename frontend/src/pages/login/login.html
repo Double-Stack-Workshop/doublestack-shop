@@ -24,7 +24,16 @@
                 
                 <div class="form-group">
                     <label for="password">密码</label>
-                    <input type="password" id="password" name="password" placeholder="请输入密码" required>
+                    <div class="password-field">
+                        <input type="password" id="password" name="password" autocomplete="current-password" placeholder="请输入密码" required>
+                        <button type="button" class="password-toggle" aria-controls="password" aria-label="显示密码" aria-pressed="false" title="显示密码">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                                <circle cx="12" cy="12" r="3" />
+                                <path class="eye-slash" d="m3 3 18 18" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="form-group remember">
@@ -54,6 +63,7 @@
     
     <script src="/src/components/common/cache.js"></script>
     <script src="/src/components/common/page-common.js"></script>
+    <script src="/src/components/common/password-toggle.js"></script>
     <script src="./login.js"></script>
 </body>
 </html>

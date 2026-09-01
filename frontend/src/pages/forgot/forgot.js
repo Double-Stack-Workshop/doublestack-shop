@@ -44,7 +44,7 @@ document.getElementById('forgotForm').addEventListener('submit', async (e) => {
         
         const data = await response.json();
         
-        if (response.ok) {
+        if (response.ok && data.success) {
             successMessage.textContent = data.message || '密码重置成功，请使用新密码登录';
             successMessage.classList.add('show');
             document.getElementById('adminPassword').value = '';

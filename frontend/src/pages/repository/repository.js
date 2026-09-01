@@ -100,6 +100,13 @@ async function loadSidebar() {
 }
 
 let currentRepoName = '';
+const deletingRepos = new Set();
+
+function escapeRepoText(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+}
 
 function applyRepoFilters() {
     const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
@@ -124,6 +131,7 @@ async function loadRepos() {
     try {
         const response = await apiFetch(`${API_BASE_URL}/repos`);
         const repos = await response.json();
+        if (!response.ok || !Array.isArray(repos)) throw new Error('获取仓库列表失败');
         
         const currentRepo = repos.find(r => r.is_current);
         currentRepoName = currentRepo ? currentRepo.name : '';
@@ -135,18 +143,18 @@ async function loadRepos() {
             repoList.innerHTML = `
                 <div class="empty-state">
                     <i class="fab fa-github"></i>
-                    <p>暂无仓库，点击右上角获取初始仓库</p>
+                    <p>暂无仓库，点击“添加仓库”开始使用</p>
                 </div>
             `;
             return;
         }
         
         repoList.innerHTML = repos.map(repo => `
-            <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${repo.name}" data-status="${repo.status}" data-search="${`${repo.name} ${repo.url}`.toLowerCase()}">
+            <div class="repo-card ${repo.is_current ? 'current-repo' : ''}" data-name="${escapeRepoText(repo.name)}" data-status="${escapeRepoText(repo.status)}" data-search="${escapeRepoText(`${repo.name} ${repo.url}`.toLowerCase())}">
                 <div class="repo-icon"><i class="fab fa-github"></i></div>
                 <div class="repo-info">
-                    <h3>${repo.name}<span class="repo-type-badge ${repo.repo_type === 'script' ? 'script' : 'compose'}">${repo.repo_type === 'script' ? 'Scripts' : 'Compose'}</span>${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
-                    <p>${repo.url}</p>
+                    <h3>${escapeRepoText(repo.name)}<span class="repo-type-badge ${repo.repo_type === 'script' ? 'script' : 'compose'}">${repo.repo_type === 'script' ? 'Scripts' : 'Compose'}</span>${repo.is_current ? ' <span class="current-badge">当前系统仓库</span>' : ''}</h3>
+                    <p>${escapeRepoText(repo.url)}</p>
                     <div class="repo-meta">
                     <div class="meta-item">
                         <i class="fas ${repo.repo_type === 'script' ? 'fa-terminal' : 'fa-file-code'}"></i>
@@ -160,23 +168,33 @@ async function loadRepos() {
                 </div>
                 <div class="repo-status-wrap">${getRepoStatusBadgeHTML(repo.status)}</div>
                 <div class="repo-actions">
-                    <button class="action-btn view-btn" title="查看文件" onclick="viewRepo('${repo.name}')">
+                    <button class="action-btn view-btn" title="查看文件" onclick="viewRepo(this.closest('.repo-card').dataset.name)">
                         <i class="fas fa-eye"></i>
                     </button>
                     <button class="action-btn sync-btn ${repo.status === 'syncing' ? 'disabled' : ''}" 
                             title="${repo.status === 'syncing' ? '同步中' : '同步仓库'}"
-                            onclick="syncRepo('${repo.name}', this)"
+                            onclick="syncRepo(this.closest('.repo-card').dataset.name, this)"
                             ${repo.status === 'syncing' ? 'disabled' : ''}>
                         <i class="fas fa-refresh ${repo.status === 'syncing' ? 'fa-spin' : ''}"></i>
                     </button>
                     ${repo.repo_type !== 'script' ? `<button class="action-btn set-current-btn ${repo.is_current ? 'active' : ''}"
                             title="${repo.is_current ? '已设为当前' : '设为当前'}"
-                            onclick="setCurrentRepo('${repo.name}', this)">
+                            onclick="setCurrentRepo(this.closest('.repo-card').dataset.name, this)">
                         <i class="fas fa-star ${repo.is_current ? 'fa-solid' : 'fa-regular'}"></i>
                     </button>` : ''}
+                    <button type="button" class="action-btn delete-btn" aria-label="删除仓库"
+                            title="${repo.status === 'syncing' ? '同步中，暂不能删除' : '删除仓库'}"
+                            onclick="deleteRepo(this)" ${repo.status === 'syncing' ? 'disabled' : ''}>
+                        <i class="fas fa-trash-alt" aria-hidden="true"></i>
+                    </button>
                 </div>
             </div>
         `).join('');
+        document.querySelectorAll('.repo-card').forEach(card => {
+            if (deletingRepos.has(card.dataset.name)) {
+                card.querySelectorAll('.action-btn').forEach(button => { button.disabled = true; });
+            }
+        });
         applyRepoFilters();
     } catch (error) {
         console.error('加载仓库失败:', error);
@@ -184,7 +202,52 @@ async function loadRepos() {
     }
 }
 
+async function deleteRepo(btn) {
+    const card = btn.closest('.repo-card');
+    const repoName = card.dataset.name;
+    if (btn.disabled || deletingRepos.has(repoName)) return;
+    if (card.dataset.status === 'syncing') {
+        showMessage('仓库正在同步，请完成后再删除', 'error');
+        return;
+    }
+    const currentWarning = currentRepoName === repoName ? '\n这是当前系统仓库，删除后需要重新选择当前仓库。' : '';
+    if (!confirm(`确定删除仓库“${repoName}”吗？\n仅移除仓库记录，不会删除本地文件或已部署的容器。${currentWarning}`)) return;
+
+    deletingRepos.add(repoName);
+    const buttons = [...card.querySelectorAll('.action-btn')];
+    const disabledStates = buttons.map(button => button.disabled);
+    buttons.forEach(button => { button.disabled = true; });
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i>';
+    btn.title = '正在删除';
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/repos/${encodeURIComponent(repoName)}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.detail || result.message || '删除失败，请重试', 'error');
+            return;
+        }
+        showMessage(result.message || '仓库已删除', 'success');
+        await loadRepos();
+    } catch (error) {
+        showMessage('删除请求失败，请刷新列表确认仓库状态后重试', 'error');
+    } finally {
+        deletingRepos.delete(repoName);
+        buttons.forEach((button, index) => { button.disabled = disabledStates[index]; });
+        btn.innerHTML = '<i class="fas fa-trash-alt" aria-hidden="true"></i>';
+        btn.title = '删除仓库';
+        // 其他请求可能在删除期间重新渲染列表，也恢复新卡片上的按钮。
+        document.querySelectorAll('.repo-card').forEach(currentCard => {
+            if (currentCard === card || currentCard.dataset.name !== repoName) return;
+            currentCard.querySelectorAll('.action-btn').forEach(button => {
+                button.disabled = currentCard.dataset.status === 'syncing'
+                    && (button.classList.contains('sync-btn') || button.classList.contains('delete-btn'));
+            });
+        });
+    }
+}
+
 async function setCurrentRepo(repoName, btn) {
+    if (btn.disabled) return;
     const card = btn.closest('.repo-card');
     
     try {
@@ -261,19 +324,23 @@ function setRepoStatusClass(statusElement, newStatus, text) {
 }
 
 async function syncRepo(repoName, btn) {
-    if (btn.classList.contains('disabled')) return;
+    if (btn.disabled || btn.classList.contains('disabled')) return;
     
     const card = btn.closest('.repo-card');
     const statusElement = card.querySelector('.repo-status');
     
     setRepoStatusClass(statusElement, 'syncing');
+    card.dataset.status = 'syncing';
+    const deleteButton = card.querySelector('.delete-btn');
+    deleteButton.disabled = true;
+    deleteButton.title = '同步中，暂不能删除';
     
     btn.classList.add('disabled');
     btn.title = '同步中';
     btn.innerHTML = '<i class="fas fa-refresh fa-spin"></i>';
     
     try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/sync`, {
+        const response = await apiFetch(`${API_BASE_URL}/repos/${encodeURIComponent(repoName)}/sync`, {
             method: 'POST'
         });
         
@@ -314,12 +381,15 @@ async function syncRepo(repoName, btn) {
         
         showMessage('网络错误，请检查后端服务', 'error');
         applyRepoFilters();
+    } finally {
+        deleteButton.disabled = false;
+        deleteButton.title = '删除仓库';
     }
 }
 
 async function viewRepo(repoName) {
     try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}`);
+        const response = await apiFetch(`${API_BASE_URL}/repos/${encodeURIComponent(repoName)}`);
         const repo = await response.json();
         
         if (response.ok) {

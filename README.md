@@ -6,7 +6,8 @@
 
 - **📦 容器管理** - 实时查看容器状态，支持启动/停止/重启/删除容器，查看容器日志；配置全局域名/IP后，容器名称可点击跳转至访问地址
 - **🚀 一键部署** - 通过 Docker Compose 快速部署应用，支持实时日志输出、时间戳与镜像拉取进度条；慢网环境下使用空闲超时避免部署中断；同时兼容 Docker Compose v1 与 v2
-- **📚 仓库管理** - 支持 Compose 与 Scripts 两种 Git 仓库：Compose 扫描 YML 用于部署，Scripts 扫描 `.sh` 并持久化保存
+- **🤖 AI 对话** - 独立页面对接 OpenAI 兼容接口，支持连续聊天、完整上下文和完整回复，聊天记录自动保存并可切换历史对话，可复制单条消息及代码；不会执行命令、修改文件或部署
+- **📚 仓库管理** - 支持 Compose 与 Scripts 两种 Git 仓库：Compose 扫描 YML 用于部署，Scripts 扫描 `.sh` 并持久化保存；支持确认后删除仓库记录，保留本地文件和已部署容器
 - **💾 备份恢复** - 容器完整备份（镜像+配置+数据卷），支持一键恢复和文件上传恢复；备份文件时间戳使用 UTC+8 时区
 - **🖼️ 镜像管理** - 查看、拉取、删除本地镜像，支持导入 Docker `.tar` 镜像包和导出单个镜像，检测 Docker Hub 最新版本
 - **📊 仪表盘** - 实时统计容器数量、备份状态等关键数据；展示宿主机系统信息（CPU、内存、磁盘、系统版本、网络）；展示 Docker/Docker Compose 版本信息；测试 GitHub 和 Docker Hub 连接性
@@ -24,7 +25,15 @@
 
 ## 快速开始
 
-### 方式一：Compose 部署（推荐）
+### 方式一：一键部署脚本（推荐一）
+
+复制命令即可一键部署
+
+```bash
+if [ -f /usr/bin/curl ]; then curl -sSO https://raw.githubusercontent.com/Double-Stack-Workshop/Compose-File/main/Scripts/install.sh; else wget -O install.sh https://raw.githubusercontent.com/Double-Stack-Workshop/Compose-File/main/Scripts/install.sh; fi && bash install.sh && rm -f install.sh
+```
+
+### 方式二：Compose 部署（推荐二）
 
 ```bash
 # 1. 克隆项目
@@ -38,7 +47,7 @@ docker compose up -d
 # 打开浏览器访问：http://localhost:8000
 ```
 
-### 方式二：Docker Run 部署
+### 方式三：Docker Run 部署
 
 ```bash
 # 创建必要目录
@@ -62,7 +71,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:v2.1.1
+  lastthree/doublestack-shop:v2.1.2
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -74,12 +83,14 @@ docker run -d \
 
 | 宿主机映射 | 容器目录 | 用途 | 不映射的影响 |
 | --- | --- | --- | --- |
-| `./backend/data` | `/app/data` | 用户、会话、系统设置、数据库及仓库 Git 缓存 | 所有应用数据会随容器重建丢失 |
+| `./backend/data` | `/app/data` | 用户、登录会话、AI 聊天记录、系统设置、数据库及仓库 Git 缓存 | 所有应用数据会随容器重建丢失 |
 | `./backend/repos` | `/app/repos` | 已同步 Compose 仓库所选子目录的文件 | 部署文件会丢失 |
 | `./backend/scripts` | `/app/scripts` | 更新与 Compose 升级脚本，以及 Scripts 仓库同步的 `.sh` 脚本 | 宿主机无法直接使用生成或同步的脚本 |
 | `./backend/backup` | `/app/backup` | 容器备份文件 | 备份文件会丢失 |
 | `./backend/logs` | `/app/logs` | 操作日志实体文件 | 日志文件会丢失 |
 | `./backend/image` | `/app/image` | 导入及导出的 Docker `.tar` 镜像包 | 镜像包会丢失 |
+
+### 特殊映射
 
 以下是 Docker 管理和宿主机功能所需的特殊映射：
 
@@ -92,7 +103,9 @@ docker run -d \
 ### 默认账号
 
 - 默认管理员账号：`admin`
-- 默认管理员密码：日志中查看（修改密码和注册账号均需要提供请牢记！）
+- 初始管理员密码：运行日志查看
+- 首次登录必须修改管理员密码
+
 
 ## 项目结构
 
@@ -146,6 +159,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.1.2 | 2026-08-30 | 初始 `admin` 账号首次登录强制修改密码，改密前限制业务 API、终端及注册与密码重置授权；改密后撤销全部旧会话并要求重新登录；兼容旧版账号迁移，已有 `admin` 管理员升级后需更新一次密码；管理员密码校验实时读取数据库，避免旧密码缓存继续生效；修复忘记密码页面误报成功。 |
 | v2.1.1 | 2026-08-29 | 新增局域网 Apprise API 通知：支持 `/notify` 与完整通知端点、测试通知，并可选择部署、仓库、镜像、备份和 Docker 重启通知；仓库与推荐容器仅以 JSON 为唯一初始化来源，移除旧数据库及初始化入口；首次启动自动将镜像内置 JSON 写入空的运行时数据目录；仓库同步时间改为记录并持久化真实 UTC+8 完成时间，重启后仍可正确显示；统一认证页面 API 配置。 |
 | v2.1.0 | 2026-08-28 | 仓库管理支持 Compose 与 Scripts 两种仓库类型；Compose 仓库仅将所选 `local_path` 导出到 `repos` 映射目录，Scripts 仓库仅将选中的 `.sh` 脚本导出到 `scripts` 映射目录，Git 缓存保存在 `data` 中；Scripts 不会出现在容器部署来源中。 |
 | v2.0.9 | 2026-08-27 | 检查更新后自动反推 `scripts` 挂载对应的宿主机绝对路径；提示用户先执行 `sudo -i`，再提供唯一的一行更新命令；修复更新脚本生成接口未返回脚本路径的问题；镜像管理新增 Docker `.tar` 包导入与镜像导出。 |
@@ -189,3 +203,4 @@ MIT License
 
 - GitHub: https://github.com/Double-Stack-Workshop/doublestack-shop
 - Docker Hub: https://hub.docker.com/r/lastthree/doublestack-shop
+- 博客：https://blog.doublestack.top

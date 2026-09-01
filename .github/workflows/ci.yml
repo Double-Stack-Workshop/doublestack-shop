@@ -21,4 +21,5 @@ jobs:
       - run: ruff check backend tests
       - run: npm ci --prefix frontend
       - run: npm run lint --prefix frontend
+      - run: node --test tests/test_ai_chat.mjs tests/test_ai_widget.mjs
       - run: find frontend/src -name '*.js' -print0 | xargs -0 -n1 node --check

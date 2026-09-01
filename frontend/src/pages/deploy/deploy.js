@@ -1,6 +1,7 @@
 const { API_BASE_URL, apiFetch } = window.AppPage;
 
 let originalContent = '';
+let fileLoadSequence = 0;
 let isDeploying = false;
 const deploymentQueue = [];
 let activeDeployment = null;
@@ -192,12 +193,17 @@ function selectYmlFile(fileName) {
 
 async function loadFileContent(repoName, fileName) {
     const editor = document.getElementById('ymlEditor');
+    const loadId = ++fileLoadSequence;
+    editor.dataset.loading = 'true';
+    setSaveButtonsDisabled(true);
+    setDeployButtonsDisabled(true);
     const modeSection = document.getElementById('modeSection');
     const paramsSection = document.getElementById('paramsSection');
     const editorSection = document.getElementById('editorSection');
     const outputSection = document.getElementById('outputSection');
     
     if (!repoName || !fileName) {
+        editor.dataset.loading = 'false';
         editor.value = '';
         editor.placeholder = '选择一个YML文件查看内容...';
         originalContent = '';
@@ -225,6 +231,8 @@ async function loadFileContent(repoName, fileName) {
         }
         
         const data = await response.json();
+        if (loadId !== fileLoadSequence || repoName !== document.getElementById('repoSelect').value
+                || fileName !== document.getElementById('fileSelect').value) return;
         originalContent = data.content;
         editor.value = data.content;
         editor.placeholder = '';
@@ -257,6 +265,8 @@ async function loadFileContent(repoName, fileName) {
         
         addLog('info', `已加载文件: ${fileName}`);
     } catch (error) {
+        if (loadId !== fileLoadSequence || repoName !== document.getElementById('repoSelect').value
+                || fileName !== document.getElementById('fileSelect').value) return;
         addLog('error', '读取文件内容失败: ' + error.message);
         editor.value = '';
         editor.placeholder = '文件读取失败';
@@ -267,6 +277,8 @@ async function loadFileContent(repoName, fileName) {
         if (_ns2) _ns2.style.display = 'none';
         document.getElementById('deployQueuePanel').classList.add('is-hidden');
         outputSection.style.display = 'none';
+    } finally {
+        if (loadId === fileLoadSequence) editor.dataset.loading = 'false';
     }
 }
 

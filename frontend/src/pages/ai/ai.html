@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - AI 对话</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/pages/ai/ai.css">
+    <link rel="stylesheet" href="/src/components/common/buttons.css">
+</head>
+<body>
+    <div class="ai-container" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left"><h1>AI 对话</h1></div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar"><img src="/src/images/logo.png" alt="用户头像"></div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+            <section class="chat-card busy" id="chatCard" aria-label="AI 对话工作区">
+                <div class="chat-toolbar">
+                    <div class="service-summary"><strong>对话</strong><span id="chatState" class="visually-hidden" role="status" aria-live="polite">恢复中</span><p id="chatStatus" class="chat-status" role="alert" hidden></p></div>
+                </div>
+                <div class="chat-history" id="chatHistory" role="log" aria-label="完整对话记录" aria-live="polite" aria-relevant="additions text">
+                    <div class="chat-empty"><i class="fas fa-comments" aria-hidden="true"></i><h2>想聊些什么？</h2><p>你可以讨论部署方案，也可以提问任何其他问题。</p></div>
+                </div>
+                <form id="chatForm" class="chat-composer">
+                    <div class="composer-input-group">
+                        <textarea id="chatInput" aria-label="消息" rows="1" maxlength="262144" placeholder="输入问题或粘贴需要讨论的内容…" disabled></textarea>
+                        <div class="composer-actions">
+                            <button type="submit" id="sendChatBtn" class="app-button" aria-label="发送" title="发送" disabled><i class="fas fa-arrow-up" aria-hidden="true"></i></button>
+                            <button type="button" class="app-button app-button-secondary" id="stopChatBtn" aria-label="停止等待" title="停止等待" hidden><i class="fas fa-stop" aria-hidden="true"></i></button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+            <section class="conversation-actions-card" aria-label="对话操作">
+                <button type="button" class="app-button" id="newChatBtn" disabled><i class="fas fa-plus" aria-hidden="true"></i>新对话</button>
+                <a class="app-button" href="/src/pages/settings/settings.html#aiSettings"><i class="fas fa-cog" aria-hidden="true"></i>接口设置</a>
+            </section>
+            <section class="conversation-history-card" aria-labelledby="historyTitle">
+                <h2 id="historyTitle">历史对话</h2>
+                <ul id="conversationList" class="conversation-list" aria-label="历史对话"></ul>
+            </section>
+        </main>
+    </div>
+    <script src="/src/components/common/page-common.js"></script>
+    <script src="/src/pages/ai/ai-message.js"></script>
+    <script src="/src/pages/ai/ai.js"></script>
+</body>
+</html>

@@ -1,7 +1,6 @@
 import sqlite3
 import os
 from datetime import datetime, timezone, timedelta
-import random
 import string
 import secrets
 import hashlib
@@ -11,7 +10,6 @@ import json
 from contextlib import contextmanager
 
 DATABASE_PATH = "./data/app.db"
-ADMIN_PASSWORD_HASH = None
 
 from .logger import log_service
 
@@ -49,8 +47,6 @@ def get_utc8_now_str():
     return get_utc8_now().isoformat()
 
 def init_db():
-    global ADMIN_PASSWORD_HASH
-    
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     
     conn = sqlite3.connect(DATABASE_PATH)
@@ -64,9 +60,15 @@ def init_db():
             email TEXT,
             is_admin INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            must_change_password INTEGER NOT NULL DEFAULT 0
         )
     ''')
+    columns = {row[1] for row in cursor.execute('PRAGMA table_info(users)')}
+    if 'must_change_password' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0')
+        # 旧版没有记录是否完成初始改密；保留密码，要求 admin 在升级后确认更新一次。
+        cursor.execute("UPDATE users SET must_change_password = 1 WHERE username = 'admin' AND is_admin = 1")
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS deployments (
@@ -102,6 +104,24 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL DEFAULT '新对话',
+            messages TEXT NOT NULL DEFAULT '[]',
+            warnings TEXT NOT NULL DEFAULT '[]',
+            model TEXT NOT NULL DEFAULT '',
+            draft TEXT NOT NULL DEFAULT '',
+            request_token TEXT NOT NULL DEFAULT '',
+            busy_until REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_ai_conversations_owner ON ai_conversations(user_id, updated_at)')
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS images_cache (
@@ -145,34 +165,29 @@ def init_db():
     if count == 0:
         admin_password = generate_strong_password()
         hashed_password = hash_password(admin_password)
-        ADMIN_PASSWORD_HASH = hashed_password
         now = get_utc8_now_str()
         
         cursor.execute('''
-            INSERT INTO users (username, password, email, is_admin, created_at, updated_at)
-            VALUES (?, ?, ?, 1, ?, ?)
+            INSERT INTO users (username, password, email, is_admin, created_at, updated_at, must_change_password)
+            VALUES (?, ?, ?, 1, ?, ?, 1)
         ''', ('admin', hashed_password, 'admin@example.com', now, now))
         
         conn.commit()
         print("=== 初始管理员账号 ===")
         print("用户名: admin")
         print(f"密码: {admin_password}")
+        print("首次登录必须修改管理员密码后才能使用系统。")
         print("=====================")
-    else:
-        cursor.execute('SELECT password FROM users WHERE username = ?', ('admin',))
-        result = cursor.fetchone()
-        if result:
-            ADMIN_PASSWORD_HASH = result[0]
-    
+    conn.commit()
     conn.close()
 
 def verify_admin_password(password):
-    if not ADMIN_PASSWORD_HASH:
-        return False
-    return verify_password(password, ADMIN_PASSWORD_HASH)
+    # 每次读取数据库，避免改密后缓存仍接受旧密码；初始密码不能授权注册或重置。
+    admin = get_user_by_username('admin')
+    return bool(admin and admin['is_admin'] and not admin['must_change_password']
+                and verify_password(password, admin['password']))
 
 def reset_admin_password(new_password):
-    global ADMIN_PASSWORD_HASH
     with db_connection() as conn:
         cursor = conn.cursor()
         hashed_password = hash_password(new_password)
@@ -187,7 +202,6 @@ def reset_admin_password(new_password):
             )
         ''', ('admin',))
         
-        ADMIN_PASSWORD_HASH = hashed_password
     log_service.warning("管理员密码已重置", 'system')
     return True
 
@@ -200,14 +214,14 @@ def generate_strong_password(length=16):
     all_chars = uppercase + lowercase + digits + special
     
     password = [
-        random.choice(uppercase),
-        random.choice(lowercase),
-        random.choice(digits),
-        random.choice(special)
+        secrets.choice(uppercase),
+        secrets.choice(lowercase),
+        secrets.choice(digits),
+        secrets.choice(special)
     ]
     
-    password += [random.choice(all_chars) for _ in range(length - 4)]
-    random.shuffle(password)
+    password += [secrets.choice(all_chars) for _ in range(length - 4)]
+    secrets.SystemRandom().shuffle(password)
     
     return ''.join(password)
 
@@ -266,7 +280,7 @@ def get_user_by_session(token):
         cursor = conn.cursor()
         cursor.execute('DELETE FROM user_sessions WHERE expires_at <= ?', (get_utc8_now_str(),))
         cursor.execute(
-            '''SELECT u.id, u.username, u.email, u.is_admin, u.created_at, u.updated_at
+            '''SELECT u.id, u.username, u.email, u.is_admin, u.created_at, u.updated_at, u.must_change_password
                FROM user_sessions s JOIN users u ON u.id = s.user_id
                WHERE s.token_hash = ? AND s.expires_at > ?''',
             (token_hash, get_utc8_now_str()),
@@ -278,6 +292,7 @@ def get_user_by_session(token):
     return {
         'id': user[0], 'username': user[1], 'email': user[2],
         'is_admin': bool(user[3]), 'created_at': user[4], 'updated_at': user[5],
+        'must_change_password': bool(user[6]),
     }
 
 
@@ -300,7 +315,8 @@ def get_user_by_username(username):
             'email': user[3],
             'is_admin': bool(user[4]),
             'created_at': user[5],
-            'updated_at': user[6]
+            'updated_at': user[6],
+            'must_change_password': bool(user[7]),
         }
     return None
 
@@ -366,6 +382,27 @@ def update_user(username, password=None, email=None):
     if changed:
         log_service.info(f"用户信息已更新: {username} (密码: {password is not None}, 邮箱: {email is not None})", 'system')
     return changed
+
+
+def change_initial_password(username, new_password):
+    """已登录管理员完成首次改密，原子解除限制并撤销全部会话。"""
+    if len(new_password) < 8 or len(new_password.encode('utf-8')) > 72:
+        raise ValueError('新密码至少为 8 位，且 UTF-8 编码不能超过 72 字节')
+    user = get_user_by_username(username)
+    if not user or not user['is_admin'] or not user['must_change_password']:
+        raise ValueError('该账号无需首次修改管理员密码')
+    if verify_password(new_password, user['password']):
+        raise ValueError('新密码不能与当前密码相同')
+    hashed_password = hash_password(new_password)
+    with db_connection() as conn:
+        cursor = conn.execute('''
+            UPDATE users SET password = ?, must_change_password = 0, updated_at = ?
+            WHERE id = ? AND password = ? AND must_change_password = 1 AND is_admin = 1
+        ''', (hashed_password, get_utc8_now_str(), user['id'], user['password']))
+        if cursor.rowcount != 1:
+            raise ValueError('密码已发生变化，请重新登录')
+        conn.execute('DELETE FROM user_sessions WHERE user_id = ?', (user['id'],))
+    log_service.success(f"用户已修改密码: {username}", 'auth')
 
 def delete_user(username):
     with db_connection() as conn:

@@ -11,6 +11,7 @@ init_db()
 
 # 现在可以安全地导入其他模块
 from .routes import router
+from .ai import router as ai_router
 from .version import VERSION
 
 app = FastAPI(title="双栈商店 API", version=VERSION)
@@ -28,8 +29,9 @@ _PUBLIC_API_PATHS = {
 _ADMIN_API_PREFIXES = (
     "/api/users", "/api/repos", "/api/deploy", "/api/containers", "/api/networks",
     "/api/images", "/api/proxy", "/api/current-repo",
-    "/api/global-domain", "/api/docker-mirrors", "/api/logs", "/api/backups",
+    "/api/global-domain", "/api/docker-mirrors", "/api/logs", "/api/backups", "/api/ai",
 )
+_PASSWORD_CHANGE_API_PATHS = {"/api/me", "/api/logout", "/api/change-password"}
 
 
 @app.middleware("http")
@@ -40,12 +42,16 @@ async def require_authenticated_api_user(request: Request, call_next):
         user = get_user_by_session(request.cookies.get("session_token"))
         if not user:
             return JSONResponse(status_code=401, content={"detail": "请先登录"})
+        if user["must_change_password"] and path not in _PASSWORD_CHANGE_API_PATHS:
+            return JSONResponse(status_code=403, content={
+                "detail": "首次登录必须修改管理员密码", "code": "PASSWORD_CHANGE_REQUIRED",
+            })
         if path.startswith(_ADMIN_API_PREFIXES) and not user["is_admin"]:
             return JSONResponse(status_code=403, content={"detail": "需要管理员权限"})
         request.state.user = user
     response = await call_next(request)
-    if request.url.path.startswith("/src/"):
-        # 前端脚本与样式随镜像发布，禁止浏览器复用旧副本导致界面与 API 不匹配。
+    if request.url.path.startswith(("/src/", "/api/ai/")):
+        # 前端避免版本缓存；AI 配置和私人对话禁止浏览器或代理缓存。
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
     return response
@@ -61,6 +67,7 @@ app.add_middleware(
 app.mount("/src", StaticFiles(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend/src")), name="src")
 
 app.include_router(router)
+app.include_router(ai_router)
 
 @app.get("/")
 async def root():

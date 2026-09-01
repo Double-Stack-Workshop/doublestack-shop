@@ -1,0 +1,28 @@
+/* 对话页与设置页共用，沿用原设置页的紫色渐变操作按钮。 */
+.app-button, .save-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: transform .3s, box-shadow .3s;
+}
+.app-button:hover:not(:disabled), .save-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, .3);
+}
+.app-button:disabled, .save-btn:disabled { opacity: .7; cursor: not-allowed; transform: none; }
+.app-button:focus-visible, .save-btn:focus-visible { outline: 2px solid #6864da; outline-offset: 3px; }
+.app-button-secondary { background: white; color: #475569; border: 1px solid #dbe1ee; }
+.app-button-secondary:hover:not(:disabled) { background: #f6f5ff; color: #5b57d1; border-color: #a5a3e7; }

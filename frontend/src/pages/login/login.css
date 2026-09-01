@@ -142,6 +142,61 @@ body {
     color: #aaa;
 }
 
+.password-field {
+    position: relative;
+}
+
+.password-field input {
+    width: 100%;
+    min-width: 0;
+    padding-right: 48px;
+}
+
+.password-field input::-ms-reveal {
+    display: none;
+}
+
+.password-toggle {
+    position: absolute;
+    top: 50%;
+    right: 3px;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #666;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.password-toggle:hover {
+    color: #667eea;
+}
+
+.password-toggle:focus-visible {
+    outline: 2px solid #667eea;
+    outline-offset: -2px;
+}
+
+.password-toggle svg {
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+}
+
+.password-toggle .eye-slash {
+    display: none;
+}
+
+.password-toggle[aria-pressed="true"] .eye-slash {
+    display: block;
+}
+
 .form-group.remember {
     flex-direction: row;
     align-items: center;
