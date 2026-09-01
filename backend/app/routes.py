@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import time
+import secrets
 from pathlib import Path
 from fastapi import APIRouter, Cookie, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -9,7 +10,8 @@ from .schemas import (
     AddRepoRequest, CreateNetworkRequest, CurrentRepoRequest, DeployRequest,
     AppriseConfigRequest, DockerMirrorsRequest, ForgotPasswordRequest, GlobalDomainRequest,
     LoginRequest, ProxyRequest, PullImageRequest, RegisterRequest, CreateUserRequest,
-    SaveFileRequest, UpdatePasswordRequest, ChangePasswordRequest,
+    SaveFileRequest, LocalYmlCreateRequest, LocalYmlUpdateRequest,
+    UpdateUserRequest, ChangePasswordRequest,
 )
 from .terminal import terminal_manager
 from .version import VERSION, DOCKERHUB_REPO, BUILD_DATE
@@ -22,6 +24,10 @@ from .services import (
     get_repo_files,
     get_yml_content,
     save_file_content,
+    list_local_yml_files,
+    get_local_yml_content,
+    create_local_yml,
+    update_local_yml,
     deploy_yml,
     get_running_containers_count,
     get_all_containers,
@@ -82,7 +88,34 @@ from .database import (
     get_user_by_session,
     password_hash_needs_upgrade,
     change_initial_password,
+    record_user_login,
+    set_user_avatar,
 )
+
+_AVATAR_DIR = Path('./data/user-avatars').resolve()
+_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+_MAX_AVATAR_BYTES = 2 * 1024 * 1024
+_AVATAR_TYPES = {
+    'image/png': ('.png', lambda data: data.startswith(b'\x89PNG\r\n\x1a\n')),
+    'image/jpeg': ('.jpg', lambda data: data.startswith(b'\xff\xd8\xff')),
+    'image/gif': ('.gif', lambda data: data.startswith((b'GIF87a', b'GIF89a'))),
+    'image/webp': ('.webp', lambda data: len(data) >= 12 and data[:4] == b'RIFF' and data[8:12] == b'WEBP'),
+}
+_DEFAULT_AVATAR_PATH = Path(__file__).resolve().parent.parent / 'frontend' / 'src' / 'images' / 'logo.png'
+if not _DEFAULT_AVATAR_PATH.is_file():
+    _DEFAULT_AVATAR_PATH = Path(__file__).resolve().parents[2] / 'frontend' / 'src' / 'images' / 'logo.png'
+
+
+def _avatar_response(user):
+    filename = user.get('avatar_filename') if user else None
+    if filename:
+        path = _AVATAR_DIR / Path(filename).name
+        if path.is_file():
+            return FileResponse(path, headers={'Cache-Control': 'no-store'})
+    return FileResponse(
+        _DEFAULT_AVATAR_PATH,
+        media_type='image/png', headers={'Cache-Control': 'no-store'},
+    )
 from .logger import log_service
 
 router = APIRouter(prefix="/api")
@@ -148,6 +181,7 @@ async def login(request: Request, credentials: LoginRequest):
         _login_attempts.pop(_login_key(request, credentials.username), None)
         log_service.success(f"用户登录成功: {credentials.username}", 'auth')
         token, max_age = create_user_session(user['id'])
+        last_login_at = record_user_login(user['id'])
         response = JSONResponse(content={
             "success": True,
             "message": "登录成功",
@@ -157,6 +191,7 @@ async def login(request: Request, credentials: LoginRequest):
                 "is_admin": user['is_admin'],
                 "must_change_password": user['must_change_password'],
                 "created_at": user['created_at']
+                ,"last_login_at": last_login_at
             }
         })
         response.set_cookie(
@@ -187,6 +222,11 @@ async def logout(session_token: str = Cookie(default=None)):
 async def get_current_user(request: Request):
     """返回由服务端会话确认的当前用户，前端不得自行推断管理员身份。"""
     return {"success": True, "data": request.state.user}
+
+
+@router.get("/me/avatar")
+async def get_current_user_avatar(request: Request):
+    return _avatar_response(get_user_by_username(request.state.user['username']))
 
 
 @router.post("/change-password")
@@ -224,9 +264,14 @@ async def register(request: RegisterRequest):
 @router.post("/users")
 async def create_user_endpoint(request: CreateUserRequest):
     """由已登录管理员创建普通用户；权限由 HTTP 中间件统一校验。"""
+    username = request.username.strip()
+    if not username:
+        raise HTTPException(status_code=422, detail="用户名不能为空")
+    if len(username) > 64:
+        raise HTTPException(status_code=422, detail="用户名不能超过 64 个字符")
     if len(request.password) < 6:
         raise HTTPException(status_code=422, detail="密码长度至少为 6 位")
-    if create_user(request.username, request.password, None, is_admin=False):
+    if create_user(username, request.password, None, is_admin=False):
         return {"success": True, "message": "用户添加成功"}
     raise HTTPException(status_code=409, detail="用户名已存在")
 
@@ -253,6 +298,8 @@ async def list_users():
         "email": user['email'],
         "is_admin": user['is_admin'],
         "created_at": user['created_at']
+        ,"last_login_at": user['last_login_at']
+        ,"avatar_filename": user['avatar_filename']
     } for user in users]
 
 @router.get("/users/{username}")
@@ -269,14 +316,63 @@ async def get_user(username: str):
     raise HTTPException(status_code=404, detail="用户不存在")
 
 @router.put("/users/{username}")
-async def update_user_endpoint(username: str, request: UpdatePasswordRequest):
-    if update_user(username, request.password, None):
-        return {"success": True, "message": "更新成功"}
+async def update_user_endpoint(username: str, request: UpdateUserRequest):
+    new_username = request.username.strip() if request.username is not None else None
+    if new_username is not None and not new_username:
+        raise HTTPException(status_code=422, detail="用户名不能为空")
+    if new_username and len(new_username) > 64:
+        raise HTTPException(status_code=422, detail="用户名不能超过 64 个字符")
+    if request.password is not None and len(request.password) < 8:
+        raise HTTPException(status_code=422, detail="密码长度至少为 8 位")
+    if request.password is None and (new_username is None or new_username == username):
+        raise HTTPException(status_code=422, detail="没有需要保存的修改")
+    try:
+        changed = update_user(username, request.password, None, new_username)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if changed:
+        return {"success": True, "message": "更新成功", "username": new_username or username}
     raise HTTPException(status_code=404, detail="用户不存在")
+
+
+@router.get("/users/{username}/avatar")
+async def get_user_avatar(username: str):
+    user = get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return _avatar_response(user)
+
+
+@router.post("/users/{username}/avatar")
+async def upload_user_avatar(username: str, file: UploadFile = File(...)):
+    user = get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    avatar_type = _AVATAR_TYPES.get((file.content_type or '').lower())
+    content = await file.read(_MAX_AVATAR_BYTES + 1)
+    await file.close()
+    if not avatar_type or not avatar_type[1](content):
+        raise HTTPException(status_code=422, detail="头像仅支持 PNG、JPG、GIF 或 WebP 图片")
+    if len(content) > _MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="头像不能超过 2 MB")
+    filename = f"{secrets.token_hex(16)}{avatar_type[0]}"
+    (_AVATAR_DIR / filename).write_bytes(content)
+    old_filename = user.get('avatar_filename')
+    if not set_user_avatar(username, filename):
+        (_AVATAR_DIR / filename).unlink(missing_ok=True)
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if old_filename:
+        (_AVATAR_DIR / Path(old_filename).name).unlink(missing_ok=True)
+    return {"success": True, "message": "头像已更新"}
 
 @router.delete("/users/{username}")
 async def delete_user_endpoint(username: str):
+    user = get_user_by_username(username)
+    if user and user['is_admin']:
+        raise HTTPException(status_code=400, detail="不能删除管理员账号")
     if delete_user(username):
+        if user and user.get('avatar_filename'):
+            (_AVATAR_DIR / Path(user['avatar_filename']).name).unlink(missing_ok=True)
         return {"success": True, "message": "删除成功"}
     raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -284,6 +380,47 @@ async def delete_user_endpoint(username: str):
 async def list_repos():
     log_service.info("获取仓库列表", 'query')
     return get_all_repos()
+
+
+@router.get("/local-yml")
+async def list_local_yml():
+    return list_local_yml_files()
+
+
+@router.post("/local-yml")
+async def create_local_yml_endpoint(request: LocalYmlCreateRequest):
+    try:
+        result = create_local_yml(request.file_name, request.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="同名 YML 文件已存在") from exc
+    log_service.success(f"自定义 YML 创建成功: {result['file_name']}", 'file')
+    return result
+
+
+@router.get("/local-yml/{file_name}")
+async def read_local_yml(file_name: str):
+    try:
+        return get_local_yml_content(file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, UnicodeError) as exc:
+        raise HTTPException(status_code=404, detail="文件不存在或不是 UTF-8 编码") from exc
+
+
+@router.put("/local-yml/{file_name}")
+async def update_local_yml_endpoint(file_name: str, request: LocalYmlUpdateRequest):
+    try:
+        result = update_local_yml(file_name, request.file_name, request.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="文件不存在") from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="同名 YML 文件已存在") from exc
+    log_service.success(f"自定义 YML 保存成功: {result['file_name']}", 'file')
+    return result
 
 @router.post("/repos")
 async def create_repo(request: AddRepoRequest):

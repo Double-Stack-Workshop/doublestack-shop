@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双栈商店 - 用户管理</title>
+    <link rel="icon" href="/src/images/logo.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/src/components/sidebar/sidebar.css">
+    <link rel="stylesheet" href="/src/components/common/buttons.css">
+    <link rel="stylesheet" href="users.css">
+</head>
+<body>
+    <div class="users-layout" id="appContainer">
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left"><h1>用户管理</h1></div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <div class="user-avatar"><img src="/src/images/logo.png" alt="用户头像"></div>
+                        <span class="username" id="currentUsername">加载中...</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <section class="user-management-card">
+                    <div class="section-header">
+                        <h2>用户列表</h2>
+                        <button id="addUserBtn" class="app-button" type="button">
+                            <i class="fas fa-user-plus"></i><span>添加用户</span>
+                        </button>
+                    </div>
+                    <div class="user-table-container">
+                        <table class="user-table">
+                            <thead><tr><th>用户名</th><th>创建时间</th><th>最后登录时间</th><th>操作</th></tr></thead>
+                            <tbody id="userTableBody"><tr><td colspan="4" class="empty-row">加载中...</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <div id="addUserModal" class="modal-overlay" aria-hidden="true">
+            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="addUserTitle">
+                <div class="modal-header">
+                    <h2 id="addUserTitle">添加用户</h2>
+                    <button class="app-button app-button-secondary app-button-icon" type="button" data-close-modal="addUserModal" aria-label="关闭"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="addUserForm">
+                    <div class="form-group"><label for="newUsername">用户名</label><input type="text" id="newUsername" maxlength="64" autocomplete="username" required></div>
+                    <div class="form-group"><label for="newPassword">密码</label><input type="password" id="newPassword" minlength="8" autocomplete="new-password" required></div>
+                    <div class="form-group"><label for="newAvatar">头像（可选）</label><input type="file" id="newAvatar" accept="image/png,image/jpeg,image/gif,image/webp"></div>
+                    <div class="form-actions">
+                        <button type="button" class="app-button app-button-secondary" data-close-modal="addUserModal">取消</button>
+                        <button type="submit" class="app-button submit-btn">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="editUserModal" class="modal-overlay" aria-hidden="true">
+            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+                <div class="modal-header">
+                    <h2 id="editUserTitle">修改用户</h2>
+                    <button class="app-button app-button-secondary app-button-icon" type="button" data-close-modal="editUserModal" aria-label="关闭"><i class="fas fa-times"></i></button>
+                </div>
+                <form id="editUserForm">
+                    <input type="hidden" id="originalUsername">
+                    <div class="form-group"><label for="editUsername">用户名</label><input type="text" id="editUsername" maxlength="64" autocomplete="username" required></div>
+                    <div class="form-group"><label for="editPassword">新密码（不修改请留空）</label><input type="password" id="editPassword" minlength="8" autocomplete="new-password"></div>
+                    <div class="form-actions">
+                        <button type="button" class="app-button app-button-secondary" data-close-modal="editUserModal">取消</button>
+                        <button type="submit" class="app-button submit-btn">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="deleteUserModal" class="modal-overlay" aria-hidden="true">
+            <div class="modal-content modal-content-small" role="dialog" aria-modal="true" aria-labelledby="deleteUserTitle">
+                <div class="modal-header">
+                    <h2 id="deleteUserTitle">删除用户</h2>
+                    <button class="app-button app-button-secondary app-button-icon" type="button" data-close-modal="deleteUserModal" aria-label="关闭"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body"><p>确定要删除用户“<strong id="deleteUsernameLabel"></strong>”吗？</p></div>
+                <div class="form-actions modal-actions">
+                    <button type="button" class="app-button app-button-secondary" data-close-modal="deleteUserModal">取消</button>
+                    <button type="button" class="app-button app-button-danger" id="confirmDeleteBtn">删除</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="messageToast" class="message-toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="/src/components/common/page-common.js"></script>
+    <script src="users.js"></script>
+</body>
+</html>

@@ -41,6 +41,10 @@
         const element = document.getElementById(elementId);
         const username = localStorage.getItem('username');
         if (element && username) element.textContent = username;
+        document.querySelectorAll('.user-avatar img').forEach(image => {
+            image.src = `${API_BASE_URL}/me/avatar?v=${Date.now()}`;
+            image.onerror = () => { image.src = '/src/images/logo.png'; };
+        });
     }
 
     async function syncCurrentUser({ allowPasswordChange = false } = {}) {

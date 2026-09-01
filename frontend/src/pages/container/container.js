@@ -27,23 +27,67 @@ async function loadGlobalDomain() {
     }
 }
 
-function getAccessUrl(container) {
-    if (!globalDomain || !container.ports || container.ports.length === 0) {
+function getPortMappings(container) {
+    const mappings = [];
+    const seen = new Set();
+    for (const rawPort of container.ports || []) {
+        const value = String(rawPort).trim().replace(/^(?:0\.0\.0\.0|\[::\]|::):/, '');
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        const match = value.match(/^(?:(.+):)?(\d+)->(\d+)(?:\/([a-z0-9]+))?$/i);
+        mappings.push({
+            value,
+            hostPort: match?.[2] || '',
+            containerPort: match?.[3] || '',
+            protocol: (match?.[4] || '').toLowerCase(),
+        });
+    }
+    return mappings;
+}
+
+function buildAccessUrl(hostPort) {
+    const configuredAddress = globalDomain.trim();
+    if (!configuredAddress || !hostPort) return null;
+    try {
+        let address = configuredAddress;
+        if (!/^https?:\/\//i.test(address)) {
+            if (address.includes(':') && !address.includes('[') && address.split(':').length > 2) {
+                address = `[${address}]`;
+            }
+            address = `http://${address}`;
+        }
+        const url = new URL(address);
+        url.port = hostPort;
+        const result = url.toString();
+        return url.pathname === '/' && !url.search && !url.hash ? result.replace(/\/$/, '') : result;
+    } catch (_error) {
         return null;
     }
-    
-    const protocol = globalDomain.startsWith('http://') || globalDomain.startsWith('https://') 
-        ? '' 
-        : 'http://';
-    
-    for (const port of container.ports) {
-        const match = port.match(/0\.0\.0\.0:(\d+)->\d+\/tcp/);
-        if (match && match[1]) {
-            return `${protocol}${globalDomain}:${match[1]}`;
-        }
-    }
-    
-    return null;
+}
+
+function getAccessLinks(container) {
+    return getPortMappings(container)
+        .filter(mapping => mapping.hostPort && (!mapping.protocol || mapping.protocol === 'tcp'))
+        .map(mapping => ({ ...mapping, url: buildAccessUrl(mapping.hostPort) }))
+        .filter(mapping => mapping.url);
+}
+
+function renderPortMappings(container) {
+    const mappings = getPortMappings(container);
+    if (mappings.length === 0) return '无';
+    return `<div class="detail-port-list">${mappings.map(mapping => {
+        const url = (!mapping.protocol || mapping.protocol === 'tcp') ? buildAccessUrl(mapping.hostPort) : null;
+        const link = url
+            ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="打开 ${escapeHtml(url)}"><i class="fas fa-external-link-alt"></i></a>`
+            : '';
+        return `<div class="detail-port-item"><span>${escapeHtml(mapping.value)}</span>${link}</div>`;
+    }).join('')}</div>`;
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[character]));
 }
 
 async function loadSidebar() {
@@ -117,10 +161,11 @@ function renderContainers(containers) {
     }
     
     const html = containers.map(container => {
-        const accessUrl = getAccessUrl(container);
-        const nameHtml = accessUrl 
-            ? `<a href="${accessUrl}" target="_blank" class="container-name-link">${container.name} <i class="fas fa-external-link-alt"></i></a>`
-            : `<span>${container.name}</span>`;
+        const accessLinks = getAccessLinks(container);
+        const accessLinksHtml = accessLinks.length > 0 ? `
+            <div class="container-port-links">
+                ${accessLinks.map(mapping => `<a href="${escapeHtml(mapping.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(mapping.url)}"><i class="fas fa-link"></i>${mapping.hostPort}</a>`).join('')}
+            </div>` : '';
         
         const runningActions = `
             <button class="action-btn stop" title="停止容器" onclick="stopContainer('${container.id}')">
@@ -144,11 +189,12 @@ function renderContainers(containers) {
                     <i class="fab fa-docker"></i>
                 </div>
                 <div class="container-details">
-                    <h3>${nameHtml}</h3>
+                    <h3><span>${escapeHtml(container.name)}</span></h3>
                     <p>
                         <span><i class="fas fa-hashtag"></i> ${container.id.slice(0, 12)}</span>
                         <span><i class="fab fa-docker"></i> ${container.image.split('/').pop().split(':')[0]}</span>
                     </p>
+                    ${accessLinksHtml}
                 </div>
             </div>
             <div class="container-status">
@@ -215,7 +261,7 @@ async function showContainerDetail(containerId) {
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">端口映射</span>
-                    <span class="detail-value">${container.ports && container.ports.length > 0 ? container.ports.join('<br>') : '无'}</span>
+                    <span class="detail-value">${renderPortMappings(container)}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">创建时间</span>

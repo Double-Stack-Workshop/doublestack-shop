@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from backend.app import database
+from backend.app import database, services
 
 
 INITIAL_PASSWORD = 'Initial.Admin123!'
@@ -37,7 +37,8 @@ class FirstLoginTests(unittest.TestCase):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             cls.app = module.app
-            cls.login_attempts = sys.modules['backend.app.routes']._login_attempts
+            cls.routes_module = sys.modules['backend.app.routes']
+            cls.login_attempts = cls.routes_module._login_attempts
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -79,6 +80,28 @@ class FirstLoginTests(unittest.TestCase):
         self.terminal.create_host_terminal.assert_not_called()
         self.assertTrue(self.client.post('/api/logout').json()['success'])
         self.assertEqual(self.client.get('/api/me').status_code, 401)
+
+    def test_admin_can_manage_local_yml_after_initial_password_change(self):
+        self.login()
+        self.assertTrue(self.change_password().json()['success'])
+        self.assertTrue(self.login(NEW_PASSWORD).json()['success'])
+        local_repos = Path(self.temp.name) / 'repos'
+        with patch.object(services, 'REPOS_DIR', local_repos):
+            created = self.client.post('/api/local-yml', json={
+                'file_name': 'compose.yml', 'content': 'services:\n',
+            })
+            self.assertEqual(created.status_code, 200)
+            self.assertEqual(self.client.get('/api/local-yml').json()[0]['name'], 'compose.yml')
+            renamed = self.client.put('/api/local-yml/compose.yml', json={
+                'file_name': 'renamed.yaml', 'content': 'services:\n  app: {}\n',
+            })
+            self.assertEqual(renamed.status_code, 200)
+            self.assertEqual(renamed.json()['file_name'], 'renamed.yaml')
+            self.assertEqual(self.client.get('/api/local-yml/compose.yml').status_code, 404)
+            self.assertEqual(
+                self.client.get('/api/local-yml/renamed.yaml').json()['content'],
+                'services:\n  app: {}\n',
+            )
 
     def test_initial_password_cannot_authorize_public_endpoints(self):
         register = self.client.post('/api/register', json={
@@ -161,6 +184,37 @@ class FirstLoginTests(unittest.TestCase):
         database.update_user('admin', password='Another.Admin789!')
         self.assertFalse(database.verify_admin_password(NEW_PASSWORD))
         self.assertTrue(database.verify_admin_password('Another.Admin789!'))
+
+    def test_admin_can_rename_self_and_last_login_is_returned(self):
+        self.login()
+        self.change_password()
+        login = self.login(NEW_PASSWORD)
+        self.assertIsNotNone(login.json()['data']['last_login_at'])
+        response = self.client.put('/api/users/admin', json={'username': 'owner'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get('/api/me').json()['data']['username'], 'owner')
+        users = self.client.get('/api/users').json()
+        self.assertEqual(users[0]['username'], 'owner')
+        self.assertIsNotNone(users[0]['last_login_at'])
+        self.assertTrue(database.verify_admin_password(NEW_PASSWORD))
+
+    def test_created_user_can_receive_an_uploaded_avatar(self):
+        self.login()
+        self.change_password()
+        self.login(NEW_PASSWORD)
+        self.assertEqual(self.client.post('/api/users', json={
+            'username': 'member', 'password': 'Member.Password123!',
+        }).status_code, 200)
+        avatar_dir = Path(self.temp.name) / 'avatars'
+        avatar_dir.mkdir()
+        with patch.object(self.routes_module, '_AVATAR_DIR', avatar_dir):
+            uploaded = self.client.post('/api/users/member/avatar', files={
+                'file': ('avatar.png', b'\x89PNG\r\n\x1a\nimage-data', 'image/png'),
+            })
+            self.assertEqual(uploaded.status_code, 200)
+            avatar = self.client.get('/api/users/member/avatar')
+            self.assertEqual(avatar.status_code, 200)
+            self.assertEqual(avatar.content, b'\x89PNG\r\n\x1a\nimage-data')
 
 
 class LegacyAccountMigrationTests(unittest.TestCase):

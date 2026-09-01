@@ -33,7 +33,7 @@ body {
     background: white;
     border-radius: 12px;
     padding: 16px;
-    margin-bottom: 20px;
+    margin-bottom: 0;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
@@ -604,6 +604,22 @@ body {
     gap: 5px;
 }
 
+.local-file-name-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.local-file-name-field .form-input {
+    width: min(360px, 55vw);
+    padding: 7px 10px;
+}
+
+.local-file-name-field.is-hidden { display: none; }
+
 .deploy-output {
     background: white;
     border-radius: 16px;
@@ -889,7 +905,7 @@ body {
     background: white;
     border-radius: 12px;
     padding: 20px;
-    margin-bottom: 20px;
+    margin-bottom: 0;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 .network-create-card {

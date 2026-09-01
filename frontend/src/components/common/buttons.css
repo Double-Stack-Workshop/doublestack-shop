@@ -26,3 +26,7 @@
 .app-button:focus-visible, .save-btn:focus-visible { outline: 2px solid #6864da; outline-offset: 3px; }
 .app-button-secondary { background: white; color: #475569; border: 1px solid #dbe1ee; }
 .app-button-secondary:hover:not(:disabled) { background: #f6f5ff; color: #5b57d1; border-color: #a5a3e7; }
+.app-button-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+.app-button-danger:hover:not(:disabled) { box-shadow: 0 6px 20px rgba(220, 38, 38, .25); }
+.app-button-compact { padding: 7px 12px; font-size: 13px; }
+.app-button-icon { width: 34px; height: 34px; padding: 0; border-radius: 8px; }

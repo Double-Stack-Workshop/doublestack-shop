@@ -11,6 +11,7 @@ import io
 import json
 import tarfile
 import tempfile
+import uuid
 from urllib.parse import quote, urlparse
 import requests
 from pathlib import Path
@@ -1326,6 +1327,117 @@ def save_file_content(repo_name: str, file_name: str, content: str) -> bool:
                         return False
     return False
 
+
+LOCAL_YML_REPO_NAME = "local"
+LOCAL_YML_MAX_BYTES = 512 * 1024
+_local_yml_lock = threading.Lock()
+
+
+def _local_yml_directory() -> Path:
+    directory = (REPOS_DIR / LOCAL_YML_REPO_NAME).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _validate_local_yml_name(file_name: str) -> str:
+    name = file_name.strip() if isinstance(file_name, str) else ""
+    if not name:
+        raise ValueError("请输入 YML 文件名")
+    if len(name.encode("utf-8")) > 255:
+        raise ValueError("文件名不能超过 255 字节")
+    if Path(name).name != name or "/" in name or "\\" in name:
+        raise ValueError("文件名不能包含路径")
+    if any(ord(char) < 32 or char in '<>:"|?*' for char in name):
+        raise ValueError("文件名包含不支持的字符")
+    if Path(name).suffix.lower() not in {".yml", ".yaml"}:
+        raise ValueError("文件名必须以 .yml 或 .yaml 结尾")
+    return name
+
+
+def _validate_local_yml_content(content: str) -> str:
+    if not isinstance(content, str):
+        raise ValueError("YML 内容格式错误")
+    if len(content.encode("utf-8")) > LOCAL_YML_MAX_BYTES:
+        raise ValueError("YML 文件不能超过 512 KB")
+    return content
+
+
+def _local_yml_path(file_name: str) -> Path:
+    return _local_yml_directory() / _validate_local_yml_name(file_name)
+
+
+def list_local_yml_files() -> List[Dict]:
+    with _local_yml_lock:
+        directory = _local_yml_directory()
+        return [
+            {"name": path.name, "path": path.name}
+            for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold())
+            if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".yml", ".yaml"}
+        ]
+
+
+def get_local_yml_content(file_name: str) -> Dict:
+    with _local_yml_lock:
+        path = _local_yml_path(file_name)
+        if not path.is_file() or path.is_symlink():
+            raise FileNotFoundError(file_name)
+        content = path.read_text(encoding="utf-8")
+        modified = datetime.datetime.fromtimestamp(
+            path.stat().st_mtime, datetime.timezone(datetime.timedelta(hours=8))
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        return {"name": path.name, "path": path.name, "content": content, "last_modified": modified}
+
+
+def create_local_yml(file_name: str, content: str = "services:\n") -> Dict:
+    name = _validate_local_yml_name(file_name)
+    data = _validate_local_yml_content(content)
+    with _local_yml_lock:
+        path = _local_yml_directory() / name
+        try:
+            with path.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(data)
+        except FileExistsError:
+            raise FileExistsError(name) from None
+    return {"success": True, "message": "自定义 YML 已创建", "file_name": name}
+
+
+def update_local_yml(file_name: str, new_file_name: str, content: str) -> Dict:
+    current_name = _validate_local_yml_name(file_name)
+    target_name = _validate_local_yml_name(new_file_name)
+    data = _validate_local_yml_content(content)
+    with _local_yml_lock:
+        directory = _local_yml_directory()
+        current_path = directory / current_name
+        target_path = directory / target_name
+        if not current_path.is_file() or current_path.is_symlink():
+            raise FileNotFoundError(current_name)
+        if target_path != current_path and target_path.exists():
+            raise FileExistsError(target_name)
+        temporary_path = directory / f".{uuid.uuid4().hex}.tmp"
+        try:
+            temporary_path.write_text(data, encoding="utf-8", newline="\n")
+            os.replace(temporary_path, target_path)
+            if target_path != current_path:
+                current_path.unlink()
+        finally:
+            temporary_path.unlink(missing_ok=True)
+    return {"success": True, "message": "自定义 YML 已保存", "file_name": target_name}
+
+
+def _local_deployment_repo() -> RepoInfo:
+    files = []
+    for item in list_local_yml_files():
+        path = _local_yml_path(item["name"])
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        files.append(YmlFile(name=path.name, path=path.name, content=content))
+    return RepoInfo(
+        name=LOCAL_YML_REPO_NAME, url="", branch="", local_path="",
+        yml_files=files, repo_dir_name=LOCAL_YML_REPO_NAME, repo_type="compose",
+    )
+
 def delete_repo(repo_name: str) -> bool:
     _ensure_repos_loaded()
     for i, repo in enumerate(repos_db):
@@ -1363,7 +1475,12 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
     from .database import add_deployment
 
     _ensure_repos_loaded()
-    selected_repo = next((repo for repo in repos_db if repo.name == repo_name), None)
+    deployment_repos = repos_db
+    if repo_name == LOCAL_YML_REPO_NAME:
+        selected_repo = _local_deployment_repo()
+        deployment_repos = [selected_repo]
+    else:
+        selected_repo = next((repo for repo in repos_db if repo.name == repo_name), None)
     if not selected_repo or selected_repo.repo_type != "compose":
         yield {
             "type": "done", "success": False,
@@ -1385,7 +1502,7 @@ def deploy_yml(repo_name: str, file_path: str) -> Generator[dict, None, None]:
         }
         return
 
-    for repo in repos_db:
+    for repo in deployment_repos:
         if repo.name == repo_name:
             for yml_file in repo.yml_files:
                 if yml_file.path == file_path or yml_file.name == file_path:
@@ -1660,6 +1777,21 @@ def get_running_containers_count() -> int:
     except Exception:
         return 0
 
+
+def _normalize_container_ports(port_values) -> list[str]:
+    """折叠 Docker 为同一映射同时输出的 IPv4/IPv6 绑定，并保留多端口。"""
+    normalized = []
+    seen = set()
+    for raw_value in port_values or []:
+        value = str(raw_value).strip()
+        if not value:
+            continue
+        value = re.sub(r'^(?:0\.0\.0\.0|\[::\]|::):', '', value)
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    return normalized
+
 def get_all_containers() -> list:
     try:
         result = subprocess.run(
@@ -1692,7 +1824,7 @@ def get_all_containers() -> list:
                         
                         ports_list = []
                         if ports != '<none>':
-                            ports_list = [p.strip() for p in ports.split(',')]
+                            ports_list = _normalize_container_ports(ports.split(','))
                         
                         containers.append({
                             'id': container_id,
@@ -1762,6 +1894,7 @@ def get_container_by_id(container_id: str) -> dict:
                                     ports.append(f"{binding['HostPort']}->{private_port}")
             except Exception:
                 ports = []
+            ports = _normalize_container_ports(ports)
             
             created_at = data['Created']
             if created_at:

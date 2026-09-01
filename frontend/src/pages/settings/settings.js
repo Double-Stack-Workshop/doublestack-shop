@@ -16,12 +16,8 @@ async function loadVersion() {
 }
 
 document.addEventListener('DOMContentLoaded', async function() {
+    initSettingsCollapsibles();
     await loadSidebar();
-    
-    const addUserBtn = document.getElementById('addUserBtn');
-    const addUserModal = document.getElementById('addUserModal');
-    const addUserForm = document.getElementById('addUserForm');
-    const editPasswordForm = document.getElementById('editPasswordForm');
     
     if (!checkLogin()) return;
     loadUserInfo();
@@ -30,197 +26,54 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadAppriseConfig();
     loadGlobalDomain();
     loadDockerMirrors();
-    
-    addUserBtn.addEventListener('click', function() {
-        addUserModal.classList.add('active');
-    });
-    
-    addUserForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const username = document.getElementById('newUsername').value;
-        const password = document.getElementById('newPassword').value;
-        
-        if (!username || !password) {
-            showMessage('请填写用户名和密码', 'error');
-            return;
-        }
-        
-        const submitBtn = addUserForm.querySelector('.btn-submit');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 添加中...';
-        
-        try {
-            const response = await apiFetch(`${API_BASE_URL}/users`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            });
-            
-            if (response.ok) {
-                showMessage('用户添加成功', 'success');
-                closeAddUserModal();
-                loadUsers();
-            } else {
-                const data = await response.json();
-                showMessage(getErrorMessage(data, '添加失败'), 'error');
-            }
-        } catch (error) {
-            showMessage('网络错误，请稍后重试', 'error');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '添加';
-        }
-    });
-    
-    editPasswordForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const username = document.getElementById('editUsername').value;
-        const password = document.getElementById('editPassword').value;
-        
-        if (!password) {
-            showMessage('请输入新密码', 'error');
-            return;
-        }
-        
-        const submitBtn = editPasswordForm.querySelector('.btn-submit');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
-        
-        try {
-            const response = await apiFetch(`${API_BASE_URL}/users/${username}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ password })
-            });
-            
-            if (response.ok) {
-                showMessage('密码修改成功', 'success');
-                closeEditPasswordModal();
-            } else {
-                const data = await response.json();
-                showMessage(data.detail || '修改失败', 'error');
-            }
-        } catch (error) {
-            showMessage(error.message || '网络错误，请稍后重试', 'error');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '保存';
-        }
-    });
-    
-    loadUsers();
 });
+
+function initSettingsCollapsibles() {
+    const sections = document.querySelectorAll('.content-area > section:not(.version-section)');
+    sections.forEach((section, index) => {
+        const header = section.querySelector('.section-header');
+        if (!header || header.querySelector('.settings-collapse-toggle')) return;
+
+        const container = header.parentElement;
+        const content = document.createElement('div');
+        content.className = 'settings-collapse-content';
+        content.id = `settingsCollapseContent${index + 1}`;
+        while (header.nextSibling) content.appendChild(header.nextSibling);
+        container.appendChild(content);
+
+        const title = header.querySelector('h2')?.textContent.trim() || '配置';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'app-button app-button-secondary app-button-icon settings-collapse-toggle';
+        toggle.setAttribute('aria-controls', content.id);
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-label', `收起${title}`);
+        toggle.title = `收起${title}`;
+        toggle.innerHTML = '<i class="fas fa-chevron-up" aria-hidden="true"></i>';
+        header.appendChild(toggle);
+        section.classList.add('settings-collapsible');
+
+        const setExpanded = expanded => {
+            content.hidden = !expanded;
+            section.classList.toggle('is-collapsed', !expanded);
+            toggle.setAttribute('aria-expanded', String(expanded));
+            toggle.setAttribute('aria-label', `${expanded ? '收起' : '展开'}${title}`);
+            toggle.title = `${expanded ? '收起' : '展开'}${title}`;
+        };
+        const toggleSection = () => setExpanded(content.hidden);
+        toggle.addEventListener('click', event => {
+            event.stopPropagation();
+            toggleSection();
+        });
+        header.addEventListener('click', event => {
+            if (!event.target.closest('button, a, input, select, textarea, label')) toggleSection();
+        });
+        setExpanded(window.location.hash === `#${section.id}`);
+    });
+}
 
 async function loadSidebar() {
     return window.AppPage.loadSidebar('settings');
-}
-
-async function loadUsers() {
-    try {
-        const response = await apiFetch(`${API_BASE_URL}/users`);
-        if (response.ok) {
-            const users = await response.json();
-            renderUsers(users);
-        } else {
-            renderUsers([]);
-        }
-    } catch (error) {
-        console.error('Failed to load users:', error);
-        renderUsers([]);
-    }
-}
-
-function renderUsers(users) {
-    const tbody = document.getElementById('userTableBody');
-    
-    if (users.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="3" class="empty-row">暂无用户</td>
-            </tr>
-        `;
-        return;
-    }
-    
-    tbody.innerHTML = users.map(user => `
-        <tr>
-            <td>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">
-                        ${user.username.charAt(0).toUpperCase()}
-                    </div>
-                    <span>${user.username}</span>
-                </div>
-            </td>
-            <td>${formatDate(user.created_at)}</td>
-            <td>
-                <button class="action-btn edit" onclick="openEditPasswordModal('${user.username}')">
-                    <i class="fas fa-key"></i>
-                    <span>修改密码</span>
-                </button>
-                ${user.username !== 'admin' ? `
-                    <button class="action-btn delete" onclick="deleteUser('${user.username}')">
-                        <i class="fas fa-trash"></i>
-                        <span>删除</span>
-                    </button>
-                ` : ''}
-            </td>
-        </tr>
-    `).join('');
-}
-
-function openEditPasswordModal(username) {
-    document.getElementById('editUsername').value = username;
-    document.getElementById('editPassword').value = '';
-    document.getElementById('editPasswordModal').classList.add('active');
-}
-
-function closeEditPasswordModal() {
-    document.getElementById('editPasswordModal').classList.remove('active');
-    document.getElementById('editPasswordForm').reset();
-}
-
-function closeAddUserModal() {
-    document.getElementById('addUserModal').classList.remove('active');
-    document.getElementById('addUserForm').reset();
-}
-
-async function deleteUser(username) {
-    if (!confirm(`确定要删除用户 "${username}" 吗？`)) {
-        return;
-    }
-    
-    try {
-        const response = await apiFetch(`${API_BASE_URL}/users/${username}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            showMessage('用户删除成功', 'success');
-            loadUsers();
-        } else {
-            const data = await response.json();
-            showMessage(data.detail || '删除失败', 'error');
-        }
-    } catch (error) {
-        showMessage('网络错误，请稍后重试', 'error');
-    }
-}
-
-function formatDate(dateStr) {
-    if (!dateStr) return '-';
-    const date = new Date(dateStr);
-    return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
 }
 
 function showMessage(message, type = 'info') {

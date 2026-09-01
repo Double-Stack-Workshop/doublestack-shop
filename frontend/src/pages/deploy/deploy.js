@@ -1,7 +1,9 @@
 const { API_BASE_URL, apiFetch } = window.AppPage;
 
 let originalContent = '';
+let originalFileName = '';
 let fileLoadSequence = 0;
+let fileListLoadSequence = 0;
 let isDeploying = false;
 const deploymentQueue = [];
 let activeDeployment = null;
@@ -39,6 +41,45 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 async function loadSidebar() {
     return window.AppPage.loadSidebar('deploy');
+}
+
+function updateModeButtonVisibility(repoName, hasFile = false) {
+    const isLocal = repoName === 'local';
+    const hideStandardModes = isLocal && !hasFile;
+    document.getElementById('easyModeBtn').classList.toggle('is-hidden', hideStandardModes);
+    document.getElementById('advancedModeBtn').classList.toggle('is-hidden', hideStandardModes);
+    document.getElementById('networkModeBtn').classList.toggle('is-hidden', hideStandardModes);
+    document.getElementById('createLocalYmlBtn').classList.toggle('is-hidden', !isLocal);
+    document.getElementById('modeSection').style.display = isLocal || hasFile ? 'block' : 'none';
+}
+
+function resetDeploymentDetails(repoName = '') {
+    fileLoadSequence += 1;
+    originalContent = '';
+    originalFileName = '';
+    const editor = document.getElementById('ymlEditor');
+    editor.dataset.loading = 'false';
+    editor.value = '';
+    editor.placeholder = '选择一个YML文件查看内容...';
+    editor.style.height = '150px';
+    setSaveButtonsDisabled(true);
+    setDeployButtonsDisabled(true);
+    document.getElementById('fileName').textContent = '未选择文件';
+    document.getElementById('fileName').classList.remove('is-hidden');
+    document.getElementById('localFileNameField').classList.add('is-hidden');
+    document.getElementById('localFileName').value = '';
+    document.getElementById('fileSize').textContent = '0 KB';
+    document.getElementById('lastModified').textContent = '未知';
+    updateModeButtonVisibility(repoName, false);
+    document.getElementById('easyModeBtn').classList.remove('active');
+    document.getElementById('advancedModeBtn').classList.remove('active');
+    document.getElementById('networkModeBtn').classList.remove('active');
+    document.getElementById('paramsSection').style.display = 'none';
+    document.getElementById('editorSection').style.display = 'none';
+    document.getElementById('networkSection').style.display = 'none';
+    document.getElementById('deployQueuePanel').classList.add('is-hidden');
+    document.getElementById('outputSection').style.display = 'none';
+    clearParamsTable();
 }
 
 function checkLogin() {
@@ -81,11 +122,10 @@ async function loadRepositories() {
             select.appendChild(option);
         });
 
-        if (deployableRepos.length === 0) {
-            select.innerHTML = '<option value="">暂无已同步的可部署仓库</option>';
-            addLog('warning', '暂无已同步且包含 YML 文件的仓库，请先在仓库管理中同步仓库');
-            return;
-        }
+        const localOption = document.createElement('option');
+        localOption.value = 'local';
+        localOption.textContent = '本地仓库';
+        select.appendChild(localOption);
         
         let selectedRepo = '';
         if (currentRepoResponse.ok) {
@@ -93,13 +133,16 @@ async function loadRepositories() {
             selectedRepo = currentRepoData.data?.repo_name || '';
         }
         
-        if (!deployableRepos.some((repo) => repo.name === selectedRepo)) {
-            selectedRepo = deployableRepos[0].name;
+        if (!deployableRepos.some((repo) => repo.name === selectedRepo) && selectedRepo !== 'local') {
+            selectedRepo = deployableRepos[0]?.name || 'local';
         }
         
         if (selectedRepo) {
             select.value = selectedRepo;
+            resetDeploymentDetails(selectedRepo);
             await loadYmlFiles(selectedRepo, searchQuery || '');
+        } else {
+            resetDeploymentDetails('');
         }
     } catch (error) {
         console.error('Error loading repositories:', error);
@@ -110,8 +153,10 @@ async function loadRepositories() {
 let allYmlFiles = [];
 
 async function loadYmlFiles(repoName, searchQuery = '') {
+    const loadId = ++fileListLoadSequence;
     const select = document.getElementById('fileSelect');
     const searchInput = document.getElementById('fileSearch');
+    const createLocalButton = document.getElementById('createLocalYmlBtn');
     
     if (!select || !searchInput) {
         console.error('fileSelect or fileSearch element not found');
@@ -128,13 +173,18 @@ async function loadYmlFiles(repoName, searchQuery = '') {
     if (!repoName) {
         return;
     }
+    if (repoName === 'local') createLocalButton.disabled = true;
     
     try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files`);
+        const filesUrl = repoName === 'local'
+            ? `${API_BASE_URL}/local-yml`
+            : `${API_BASE_URL}/repos/${repoName}/files`;
+        const response = await apiFetch(filesUrl);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const files = await response.json();
+        if (loadId !== fileListLoadSequence || document.getElementById('repoSelect').value !== repoName) return;
         
         allYmlFiles = files.filter(file => file.name.endsWith('.yml') || file.name.endsWith('.yaml'));
         
@@ -146,17 +196,25 @@ async function loadYmlFiles(repoName, searchQuery = '') {
         });
         
         searchInput.disabled = allYmlFiles.length === 0;
-        searchInput.placeholder = allYmlFiles.length > 0 ? '选择或搜索 YML 文件...' : '该仓库没有 YML 文件';
+        searchInput.placeholder = allYmlFiles.length > 0
+            ? '选择或搜索 YML 文件...'
+            : (repoName === 'local' ? '暂无文件，请新建 Compose 文件' : '该仓库没有 YML 文件');
         renderFileOptions(searchQuery);
         
         if (allYmlFiles.length === 0) {
-            addLog('warning', '该仓库中没有找到YML文件');
+            addLog('warning', repoName === 'local' ? '本地仓库暂无 Compose 文件' : '该仓库中没有找到YML文件');
         }
     } catch (error) {
+        if (loadId !== fileListLoadSequence || document.getElementById('repoSelect').value !== repoName) return;
         console.error('Error loading files:', error);
         addLog('error', '获取文件列表失败: ' + error.message);
         searchInput.disabled = true;
         searchInput.placeholder = '获取文件列表失败';
+    } finally {
+        if (repoName === 'local' && loadId === fileListLoadSequence
+                && document.getElementById('repoSelect').value === 'local') {
+            createLocalButton.disabled = false;
+        }
     }
 }
 
@@ -165,16 +223,38 @@ function renderFileOptions(searchText = '') {
     const normalizedSearch = searchText.trim().toLowerCase();
     const filteredFiles = allYmlFiles.filter(file => file.name.toLowerCase().includes(normalizedSearch));
 
-    dropdown.innerHTML = filteredFiles.length > 0
-        ? filteredFiles.map(file => `<button type="button" class="file-option" role="option" data-file="${file.name}"><i class="fas fa-file-code"></i><span>${file.name}</span></button>`).join('')
-        : '<div class="file-option-empty">未找到匹配的 YML 文件</div>';
+    dropdown.replaceChildren();
+    if (filteredFiles.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'file-option-empty';
+        empty.textContent = '未找到匹配的 YML 文件';
+        dropdown.appendChild(empty);
+        return;
+    }
+    filteredFiles.forEach(file => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'file-option';
+        button.setAttribute('role', 'option');
+        button.dataset.file = file.name;
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-file-code';
+        const label = document.createElement('span');
+        label.textContent = file.name;
+        button.append(icon, label);
+        dropdown.appendChild(button);
+    });
 }
 
-function showFileDropdown() {
+function showFileDropdown(searchText = null) {
     const searchInput = document.getElementById('fileSearch');
     const dropdown = document.getElementById('fileDropdown');
     if (searchInput.disabled) return;
-    renderFileOptions(searchInput.value);
+    const selectedFile = document.getElementById('fileSelect').value;
+    const effectiveSearch = searchText === null
+        ? (searchInput.value === selectedFile ? '' : searchInput.value)
+        : searchText;
+    renderFileOptions(effectiveSearch);
     dropdown.classList.remove('is-hidden');
 }
 
@@ -197,34 +277,20 @@ async function loadFileContent(repoName, fileName) {
     editor.dataset.loading = 'true';
     setSaveButtonsDisabled(true);
     setDeployButtonsDisabled(true);
-    const modeSection = document.getElementById('modeSection');
     const paramsSection = document.getElementById('paramsSection');
     const editorSection = document.getElementById('editorSection');
     const outputSection = document.getElementById('outputSection');
     
     if (!repoName || !fileName) {
-        editor.dataset.loading = 'false';
-        editor.value = '';
-        editor.placeholder = '选择一个YML文件查看内容...';
-        originalContent = '';
-        setSaveButtonsDisabled(true);
-        setDeployButtonsDisabled(true);
-        document.getElementById('fileName').textContent = '未选择文件';
-        document.getElementById('fileSize').textContent = '0 KB';
-        document.getElementById('lastModified').textContent = '未知';
-        editor.style.height = '150px';
-        modeSection.style.display = 'none';
-        paramsSection.style.display = 'none';
-        editorSection.style.display = 'none';
-        const _ns1 = document.getElementById('networkSection');
-        if (_ns1) _ns1.style.display = 'none';
-        document.getElementById('deployQueuePanel').classList.add('is-hidden');
-        outputSection.style.display = 'none';
+        resetDeploymentDetails(repoName);
         return;
     }
     
     try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`);
+        const fileUrl = repoName === 'local'
+            ? `${API_BASE_URL}/local-yml/${encodeURIComponent(fileName)}`
+            : `${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`;
+        const response = await apiFetch(fileUrl);
         
         if (!response.ok) {
             throw new Error('文件读取失败');
@@ -234,10 +300,23 @@ async function loadFileContent(repoName, fileName) {
         if (loadId !== fileLoadSequence || repoName !== document.getElementById('repoSelect').value
                 || fileName !== document.getElementById('fileSelect').value) return;
         originalContent = data.content;
+        originalFileName = fileName;
         editor.value = data.content;
         editor.placeholder = '';
         
-        document.getElementById('fileName').textContent = fileName;
+        const fileNameLabel = document.getElementById('fileName');
+        const localNameField = document.getElementById('localFileNameField');
+        const localNameInput = document.getElementById('localFileName');
+        fileNameLabel.textContent = fileName;
+        if (repoName === 'local') {
+            fileNameLabel.classList.add('is-hidden');
+            localNameField.classList.remove('is-hidden');
+            localNameInput.value = fileName;
+        } else {
+            fileNameLabel.classList.remove('is-hidden');
+            localNameField.classList.add('is-hidden');
+            localNameInput.value = '';
+        }
         document.getElementById('fileSize').textContent = `${(data.content.length / 1024).toFixed(2)} KB`;
         document.getElementById('lastModified').textContent = data.last_modified || '未知';
         
@@ -247,18 +326,18 @@ async function loadFileContent(repoName, fileName) {
         adjustEditorHeight(editor);
         parseYmlAndShowParams(data.content);
         
-        modeSection.style.display = 'block';
+        updateModeButtonVisibility(repoName, true);
         // 重置三个 section 的可见性：默认显示简易模式，其他隐藏
-        paramsSection.style.display = 'block';
-        editorSection.style.display = 'none';
+        paramsSection.style.display = repoName === 'local' ? 'none' : 'block';
+        editorSection.style.display = repoName === 'local' ? 'block' : 'none';
         const _networkSec = document.getElementById('networkSection');
         if (_networkSec) _networkSec.style.display = 'none';
         // 同步重置 tab 的 active 状态为 easy mode
         const _eBtn = document.getElementById('easyModeBtn');
         const _aBtn = document.getElementById('advancedModeBtn');
         const _nBtn = document.getElementById('networkModeBtn');
-        if (_eBtn) _eBtn.classList.add('active');
-        if (_aBtn) _aBtn.classList.remove('active');
+        if (_eBtn) _eBtn.classList.toggle('active', repoName !== 'local');
+        if (_aBtn) _aBtn.classList.toggle('active', repoName === 'local');
         if (_nBtn) _nBtn.classList.remove('active');
         document.getElementById('deployQueuePanel').classList.remove('is-hidden');
         outputSection.style.display = 'block';
@@ -268,15 +347,8 @@ async function loadFileContent(repoName, fileName) {
         if (loadId !== fileLoadSequence || repoName !== document.getElementById('repoSelect').value
                 || fileName !== document.getElementById('fileSelect').value) return;
         addLog('error', '读取文件内容失败: ' + error.message);
-        editor.value = '';
+        resetDeploymentDetails(repoName);
         editor.placeholder = '文件读取失败';
-        editor.style.height = '150px';
-        clearParamsTable();
-        modeSection.style.display = 'none';
-        const _ns2 = document.getElementById('networkSection');
-        if (_ns2) _ns2.style.display = 'none';
-        document.getElementById('deployQueuePanel').classList.add('is-hidden');
-        outputSection.style.display = 'none';
     } finally {
         if (loadId === fileLoadSequence) editor.dataset.loading = 'false';
     }
@@ -422,22 +494,36 @@ function adjustEditorHeight(editor) {
 
 async function saveFileContent(repoName, fileName, content) {
     try {
-        const response = await apiFetch(`${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`, {
+        const requestedFileName = repoName === 'local'
+            ? document.getElementById('localFileName').value.trim()
+            : fileName;
+        const fileUrl = repoName === 'local'
+            ? `${API_BASE_URL}/local-yml/${encodeURIComponent(fileName)}`
+            : `${API_BASE_URL}/repos/${repoName}/files/${encodeURIComponent(fileName)}`;
+        const response = await apiFetch(fileUrl, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ content })
+            body: JSON.stringify(repoName === 'local' ? { file_name: requestedFileName, content } : { content })
         });
         
         if (!response.ok) {
-            throw new Error('保存失败');
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail || '保存失败');
         }
         
         const result = await response.json();
         
         if (result.success) {
             originalContent = content;
+            originalFileName = result.file_name || requestedFileName;
+            if (repoName === 'local') {
+                await loadYmlFiles('local');
+                document.getElementById('fileSelect').value = originalFileName;
+                document.getElementById('fileSearch').value = originalFileName;
+                document.getElementById('localFileName').value = originalFileName;
+            }
             setSaveButtonsDisabled(true);
             addLog('success', '文件保存成功');
         } else {
@@ -583,6 +669,29 @@ async function processDeploymentQueue() {
         activeDeployment = null;
         isDeploying = false;
         renderDeploymentQueue();
+    }
+}
+
+async function createLocalYml() {
+    const repoSelect = document.getElementById('repoSelect');
+    repoSelect.value = 'local';
+    const existingNames = new Set(allYmlFiles.map(file => file.name.toLowerCase()));
+    let fileName = 'compose.yml';
+    let index = 2;
+    while (existingNames.has(fileName.toLowerCase())) fileName = `compose-${index++}.yml`;
+    try {
+        const response = await apiFetch(`${API_BASE_URL}/local-yml`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_name: fileName, content: 'services:\n' })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || '创建失败');
+        await loadYmlFiles('local');
+        selectYmlFile(result.file_name);
+        addLog('success', `已创建 Compose 文件: ${result.file_name}`);
+    } catch (error) {
+        addLog('error', '创建 Compose 文件失败: ' + error.message);
     }
 }
 
@@ -782,16 +891,12 @@ function setupEventListeners() {
     const clearLogBtn = document.getElementById('clearLogBtn');
     
     repoSelect.addEventListener('change', function() {
+        const repoName = this.value;
         fileSelect.value = '';
-        editor.value = '';
-        editor.placeholder = '选择一个YML文件查看内容...';
-        originalContent = '';
-        setSaveButtonsDisabled(true);
-        setDeployButtonsDisabled(true);
-        document.getElementById('deployQueuePanel').classList.add('is-hidden');
         const searchInput = document.getElementById('fileSearch');
         searchInput.value = '';
-        loadYmlFiles(this.value, searchInput.value);
+        resetDeploymentDetails(repoName);
+        loadYmlFiles(repoName, '');
     });
     
     fileSelect.addEventListener('change', function() {
@@ -799,7 +904,8 @@ function setupEventListeners() {
     });
     
     editor.addEventListener('input', function() {
-        const hasChanges = this.value !== originalContent;
+        const hasChanges = this.value !== originalContent
+            || (repoSelect.value === 'local' && document.getElementById('localFileName').value.trim() !== originalFileName);
         setSaveButtonsDisabled(!hasChanges);
         adjustEditorHeight(this);
     });
@@ -811,10 +917,16 @@ function setupEventListeners() {
     });
     
     document.querySelectorAll('.deploy-save-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            saveFileContent(repoSelect.value, fileSelect.value, editor.value);
+        btn.addEventListener('click', async function() {
+            await saveFileContent(repoSelect.value, fileSelect.value, editor.value);
         });
     });
+
+    document.getElementById('localFileName').addEventListener('input', function() {
+        const hasChanges = editor.value !== originalContent || this.value.trim() !== originalFileName;
+        setSaveButtonsDisabled(!hasChanges);
+    });
+    document.getElementById('createLocalYmlBtn').addEventListener('click', createLocalYml);
     
     document.querySelectorAll('.deploy-deploy-btn').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -834,11 +946,10 @@ function setupEventListeners() {
     
     const fileSearch = document.getElementById('fileSearch');
     fileSearch.addEventListener('input', function() {
-        renderFileOptions(this.value);
-        showFileDropdown();
+        showFileDropdown(this.value);
     });
-    fileSearch.addEventListener('focus', showFileDropdown);
-    fileSearch.addEventListener('click', showFileDropdown);
+    fileSearch.addEventListener('focus', () => showFileDropdown());
+    fileSearch.addEventListener('click', () => showFileDropdown());
 
     document.getElementById('filePickerToggle').addEventListener('click', function() {
         const dropdown = document.getElementById('fileDropdown');

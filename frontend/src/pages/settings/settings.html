@@ -196,82 +196,8 @@
                 </div>
             </section>
             
-            <section class="user-management">
-                    <div class="section-header">
-                        <h2>用户管理</h2>
-                        <button id="addUserBtn" class="add-btn">
-                            <i class="fas fa-user-plus"></i>
-                            <span>添加用户</span>
-                        </button>
-                    </div>
-                    
-                    <div class="user-table-container">
-                        <table class="user-table">
-                            <thead>
-                                <tr>
-                                    <th>用户名</th>
-                                    <th>创建时间</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="userTableBody">
-                                <tr>
-                                    <td colspan="3" class="empty-row">加载中...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
             </div>
         </main>
-        
-        <div id="addUserModal" class="modal-overlay">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>添加用户</h2>
-                    <button class="modal-close" onclick="closeAddUserModal()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form id="addUserForm">
-                    <div class="form-group">
-                        <label for="newUsername">用户名</label>
-                        <input type="text" id="newUsername" placeholder="请输入用户名" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="newPassword">密码</label>
-                        <input type="password" id="newPassword" placeholder="请输入密码" required>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn-cancel" onclick="closeAddUserModal()">取消</button>
-                        <button type="submit" class="btn-submit">添加</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        
-        <div id="editPasswordModal" class="modal-overlay">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>修改密码</h2>
-                    <button class="modal-close" onclick="closeEditPasswordModal()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form id="editPasswordForm">
-                    <input type="hidden" id="editUsername">
-                    <div class="form-group">
-                        <label for="editPassword">新密码</label>
-                        <input type="password" id="editPassword" placeholder="请输入新密码" required>
-                    </div>
-                    <div class="form-actions">
-                        <button type="button" class="btn-cancel" onclick="closeEditPasswordModal()">取消</button>
-                        <button type="submit" class="btn-submit">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        
         <div id="messageToast" class="message-toast"></div>
     </div>
     

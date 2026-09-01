@@ -1,7 +1,7 @@
 name: doublestack-shop
 services:
   doublestack-shop:
-    image: lastthree/doublestack-shop:v2.1.2
+    image: lastthree/doublestack-shop:v2.1.3
     container_name: doublestack-shop
     ports:
       - "8000:8001"

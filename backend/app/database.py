@@ -61,7 +61,9 @@ def init_db():
             is_admin INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            must_change_password INTEGER NOT NULL DEFAULT 0
+            must_change_password INTEGER NOT NULL DEFAULT 0,
+            last_login_at TEXT,
+            avatar_filename TEXT
         )
     ''')
     columns = {row[1] for row in cursor.execute('PRAGMA table_info(users)')}
@@ -69,6 +71,10 @@ def init_db():
         cursor.execute('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0')
         # 旧版没有记录是否完成初始改密；保留密码，要求 admin 在升级后确认更新一次。
         cursor.execute("UPDATE users SET must_change_password = 1 WHERE username = 'admin' AND is_admin = 1")
+    if 'last_login_at' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN last_login_at TEXT')
+    if 'avatar_filename' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN avatar_filename TEXT')
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS deployments (
@@ -183,7 +189,7 @@ def init_db():
 
 def verify_admin_password(password):
     # 每次读取数据库，避免改密后缓存仍接受旧密码；初始密码不能授权注册或重置。
-    admin = get_user_by_username('admin')
+    admin = get_admin_user()
     return bool(admin and admin['is_admin'] and not admin['must_change_password']
                 and verify_password(password, admin['password']))
 
@@ -193,14 +199,12 @@ def reset_admin_password(new_password):
         hashed_password = hash_password(new_password)
         now = get_utc8_now_str()
         
-        cursor.execute('''
-            UPDATE users SET password = ?, updated_at = ? WHERE username = ?
-        ''', (hashed_password, now, 'admin'))
-        cursor.execute('''
-            DELETE FROM user_sessions WHERE user_id = (
-                SELECT id FROM users WHERE username = ?
-            )
-        ''', ('admin',))
+        admin = conn.execute('SELECT id FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1').fetchone()
+        if not admin:
+            return False
+        cursor.execute('UPDATE users SET password = ?, updated_at = ? WHERE id = ?',
+                       (hashed_password, now, admin[0]))
+        cursor.execute('DELETE FROM user_sessions WHERE user_id = ?', (admin[0],))
         
     log_service.warning("管理员密码已重置", 'system')
     return True
@@ -280,7 +284,8 @@ def get_user_by_session(token):
         cursor = conn.cursor()
         cursor.execute('DELETE FROM user_sessions WHERE expires_at <= ?', (get_utc8_now_str(),))
         cursor.execute(
-            '''SELECT u.id, u.username, u.email, u.is_admin, u.created_at, u.updated_at, u.must_change_password
+            '''SELECT u.id, u.username, u.email, u.is_admin, u.created_at, u.updated_at,
+                      u.must_change_password, u.last_login_at, u.avatar_filename
                FROM user_sessions s JOIN users u ON u.id = s.user_id
                WHERE s.token_hash = ? AND s.expires_at > ?''',
             (token_hash, get_utc8_now_str()),
@@ -293,6 +298,7 @@ def get_user_by_session(token):
         'id': user[0], 'username': user[1], 'email': user[2],
         'is_admin': bool(user[3]), 'created_at': user[4], 'updated_at': user[5],
         'must_change_password': bool(user[6]),
+        'last_login_at': user[7], 'avatar_filename': user[8],
     }
 
 
@@ -317,8 +323,16 @@ def get_user_by_username(username):
             'created_at': user[5],
             'updated_at': user[6],
             'must_change_password': bool(user[7]),
+            'last_login_at': user[8],
+            'avatar_filename': user[9],
         }
     return None
+
+
+def get_admin_user():
+    with db_connection() as conn:
+        row = conn.execute('SELECT username FROM users WHERE is_admin = 1 ORDER BY id LIMIT 1').fetchone()
+    return get_user_by_username(row[0]) if row else None
 
 def get_user_by_email(email):
     with db_connection() as conn:
@@ -353,7 +367,7 @@ def create_user(username, password, email=None, is_admin=False):
         log_service.warning(f"用户创建失败: {username} - 用户已存在", 'system')
         return False
 
-def update_user(username, password=None, email=None):
+def update_user(username, password=None, email=None, new_username=None):
     updates = []
     params = []
         
@@ -364,24 +378,48 @@ def update_user(username, password=None, email=None):
     if email:
         updates.append("email = ?")
         params.append(email)
+
+    if new_username and new_username != username:
+        updates.append("username = ?")
+        params.append(new_username)
         
     updates.append("updated_at = ?")
     params.append(get_utc8_now_str())
     params.append(username)
         
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(f'''
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'''
                 UPDATE users SET {", ".join(updates)} WHERE username = ?
             ''', params)
-        changed = cursor.rowcount > 0
-        if password:
-            cursor.execute('''DELETE FROM user_sessions WHERE user_id = (
-                SELECT id FROM users WHERE username = ?
-            )''', (username,))
+            changed = cursor.rowcount > 0
+            if password and changed:
+                cursor.execute('DELETE FROM user_sessions WHERE user_id = ?', (
+                    cursor.execute('SELECT id FROM users WHERE username = ?',
+                                   (new_username or username,)).fetchone()[0],
+                ))
+    except sqlite3.IntegrityError as exc:
+        raise ValueError('用户名已存在') from exc
     if changed:
         log_service.info(f"用户信息已更新: {username} (密码: {password is not None}, 邮箱: {email is not None})", 'system')
     return changed
+
+
+def record_user_login(user_id):
+    now = get_utc8_now_str()
+    with db_connection() as conn:
+        conn.execute('UPDATE users SET last_login_at = ? WHERE id = ?', (now, user_id))
+    return now
+
+
+def set_user_avatar(username, avatar_filename):
+    with db_connection() as conn:
+        cursor = conn.execute(
+            'UPDATE users SET avatar_filename = ?, updated_at = ? WHERE username = ?',
+            (avatar_filename, get_utc8_now_str(), username),
+        )
+        return cursor.rowcount > 0
 
 
 def change_initial_password(username, new_password):
@@ -427,7 +465,10 @@ def get_all_users():
         'email': user[3],
         'is_admin': bool(user[4]),
         'created_at': user[5],
-        'updated_at': user[6]
+        'updated_at': user[6],
+        'must_change_password': bool(user[7]),
+        'last_login_at': user[8],
+        'avatar_filename': user[9],
     } for user in users]
 
 def add_deployment(repo_name, file_name, container_id=None, container_name=None, status='deploying', message=''):

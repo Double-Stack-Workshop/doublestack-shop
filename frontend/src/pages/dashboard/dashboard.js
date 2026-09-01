@@ -313,8 +313,10 @@ function navigateTo(page) {
         'container': '../container/container.html',
         'backup': '../backup/backup.html',
         'image': '../image/image.html',
+        'ai': '../ai/ai.html',
         'terminal': '../terminal/terminal.html',
         'logs': '../logs/logs.html',
+        'users': '../users/users.html',
         'settings': '../settings/settings.html'
     };
     

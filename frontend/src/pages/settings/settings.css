@@ -719,7 +719,15 @@ body {
     font-size: 18px;
     color: #1e293b;
     font-weight: 600;
+    margin-right: auto;
 }
+
+.settings-collapsible .section-header { cursor: pointer; }
+.settings-collapsible.is-collapsed .section-header { margin-bottom: 0; }
+.settings-collapse-toggle { flex: 0 0 auto; margin-left: 12px; }
+.settings-collapse-toggle i { transition: transform .2s ease; }
+.settings-collapsible.is-collapsed .settings-collapse-toggle i { transform: rotate(180deg); }
+.settings-collapse-content[hidden] { display: none; }
 
 .add-btn {
     display: flex;

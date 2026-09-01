@@ -27,7 +27,7 @@ _PUBLIC_API_PATHS = {
     "/api/users/forgot-password",
 }
 _ADMIN_API_PREFIXES = (
-    "/api/users", "/api/repos", "/api/deploy", "/api/containers", "/api/networks",
+    "/api/users", "/api/repos", "/api/local-yml", "/api/deploy", "/api/containers", "/api/networks",
     "/api/images", "/api/proxy", "/api/current-repo",
     "/api/global-domain", "/api/docker-mirrors", "/api/logs", "/api/backups", "/api/ai",
 )

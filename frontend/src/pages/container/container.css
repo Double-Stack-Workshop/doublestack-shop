@@ -384,6 +384,29 @@ body {
     gap: 4px;
 }
 
+.container-port-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.container-port-links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid #c7d2fe;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 12px;
+    line-height: 1.2;
+    text-decoration: none;
+}
+
+.container-port-links a:hover { background: #e0e7ff; border-color: #818cf8; }
+
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -601,6 +624,19 @@ body {
 
 .detail-value a:hover {
     text-decoration: underline;
+}
+
+.detail-port-list { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.detail-port-item { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.detail-port-item a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    background: #eef2ff;
 }
 
 @media (max-width: 768px) {

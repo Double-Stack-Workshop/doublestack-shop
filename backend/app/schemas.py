@@ -29,8 +29,9 @@ class CreateUserRequest(BaseModel):
     password: str
 
 
-class UpdatePasswordRequest(BaseModel):
-    password: str
+class UpdateUserRequest(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -39,6 +40,16 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class SaveFileRequest(BaseModel):
+    content: str
+
+
+class LocalYmlCreateRequest(BaseModel):
+    file_name: str
+    content: str = "services:\n"
+
+
+class LocalYmlUpdateRequest(BaseModel):
+    file_name: str
     content: str
 
 

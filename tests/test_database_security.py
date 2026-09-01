@@ -38,6 +38,21 @@ class DatabaseSecurityTests(unittest.TestCase):
         database.delete_user_session(token)
         self.assertIsNone(database.get_user_by_session(token))
 
+    def test_username_login_time_and_avatar_are_persisted(self):
+        admin = database.get_user_by_username("admin")
+        token, _ = database.create_user_session(admin["id"])
+        login_time = database.record_user_login(admin["id"])
+        self.assertTrue(database.update_user("admin", new_username="owner"))
+        self.assertEqual(database.get_user_by_session(token)["username"], "owner")
+        self.assertEqual(database.get_user_by_username("owner")["last_login_at"], login_time)
+        self.assertTrue(database.set_user_avatar("owner", "avatar.png"))
+        self.assertEqual(database.get_user_by_username("owner")["avatar_filename"], "avatar.png")
+
+    def test_username_cannot_be_renamed_to_an_existing_account(self):
+        self.assertTrue(database.create_user("member", "Member.Password123!"))
+        with self.assertRaisesRegex(ValueError, "用户名已存在"):
+            database.update_user("admin", new_username="member")
+
     def test_settings_round_trip(self):
         database.set_setting("http_proxy", "http://proxy.example:8080")
         self.assertEqual(database.get_setting("http_proxy"), "http://proxy.example:8080")

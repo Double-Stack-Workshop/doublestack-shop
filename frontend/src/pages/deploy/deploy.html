@@ -69,6 +69,10 @@
                             <i class="fas fa-network-wired"></i>
                             网络管理
                         </button>
+                        <button type="button" id="createLocalYmlBtn" class="mode-tab is-hidden">
+                            <i class="fas fa-file-circle-plus"></i>
+                            新建 Compose 文件
+                        </button>
                     </div>
                 </div>
 
@@ -94,12 +98,15 @@
                 <div class="editor-section is-hidden" id="editorSection">
                     <div class="section-header">
                         <h2>配置内容</h2>
-                        <a href="/src/pages/ai/ai.html">前往 AI 对话</a>
                     </div>
                     <div class="editor-container">
                         <textarea id="ymlEditor" class="yml-editor" placeholder="选择一个YML文件查看内容..."></textarea>
                         <div class="editor-info">
                             <span id="fileName">未选择文件</span>
+                            <label id="localFileNameField" class="local-file-name-field is-hidden" for="localFileName">
+                                文件名
+                                <input id="localFileName" class="form-input" type="text" maxlength="255" autocomplete="off">
+                            </label>
                             <span id="fileSize">0 KB</span>
                             <span id="lastModified">未知</span>
                         </div>
