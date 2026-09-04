@@ -18,6 +18,8 @@ Thumbs.db
 *.egg-info/
 dist/
 build/
+packaging/
+fnpack-*
 .venv/
 venv/
 env/

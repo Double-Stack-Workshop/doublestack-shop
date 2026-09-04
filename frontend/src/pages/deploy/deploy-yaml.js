@@ -10,5 +10,27 @@
         return document.services;
     }
 
-    window.DeployYaml = { parseServices };
+    function collectPortInputs(inputs) {
+        const groups = new Map();
+        Array.from(inputs || []).forEach(input => {
+            const service = input.dataset.service || '';
+            const index = input.dataset.idx || '0';
+            const key = `${service}\u0000${index}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    service,
+                    index,
+                    original: input.dataset.original || '',
+                    host: '',
+                    container: '',
+                });
+            }
+            const entry = groups.get(key);
+            if (input.dataset.part === 'host') entry.host = input.value.trim();
+            if (input.dataset.part === 'container') entry.container = input.value.trim();
+        });
+        return groups;
+    }
+
+    window.DeployYaml = { parseServices, collectPortInputs };
 }());

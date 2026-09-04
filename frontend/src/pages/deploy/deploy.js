@@ -791,27 +791,10 @@ function syncParamsToEditor() {
     let hasChanges = false;
     
     const portInputs = document.querySelectorAll('input[data-field="ports"]');
-    const portIdxMap = new Map();
+    const portIdxMap = window.DeployYaml.collectPortInputs(portInputs);
     
-    portInputs.forEach(input => {
-        const idx = input.dataset.idx;
-        const original = input.dataset.original;
-        const part = input.dataset.part;
-        const value = input.value.trim();
-        
-        if (!portIdxMap.has(idx)) {
-            portIdxMap.set(idx, { original, host: '', container: '' });
-        }
-        
-        if (part === 'host') {
-            portIdxMap.get(idx).host = value;
-        } else {
-            portIdxMap.get(idx).container = value;
-        }
-    });
-    
-    portIdxMap.forEach((data, idx) => {
-        const { original, host, container } = data;
+    portIdxMap.forEach(data => {
+        const { service, index, original, host, container } = data;
         if (!host || !container) return;
         
         const newEntry = `${host}:${container}`;
@@ -819,9 +802,10 @@ function syncParamsToEditor() {
             hasChanges = true;
             content = content.replace(new RegExp(original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), newEntry);
             
-            const portInputs = document.querySelectorAll(`input[data-field="ports"][data-idx="${idx}"]`);
             portInputs.forEach(input => {
-                input.dataset.original = newEntry;
+                if (input.dataset.service === service && input.dataset.idx === index) {
+                    input.dataset.original = newEntry;
+                }
             });
         }
     });

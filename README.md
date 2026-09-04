@@ -25,7 +25,19 @@
 
 ## 快速开始
 
-### 方式一：一键部署脚本（推荐一）
+### 方式一：飞牛 fnOS FPK 安装（推荐一）
+
+适用于飞牛 fnOS，安装和运行由应用中心管理：
+
+1. 从 GitHub Releases 下载 `doublestack-shop-2.1.4.fpk`。
+2. 打开飞牛 fnOS 的「应用中心」，选择「手动安装」。
+3. 选择下载的 `.fpk` 文件并按向导完成安装。
+4. 在安装向导中设置访问端口，以及数据、仓库、脚本、备份、日志和镜像目录。
+5. 安装完成后，从飞牛 fnOS 桌面或应用中心打开「双栈商店」，应用会在浏览器中访问配置的端口。
+
+卸载时可以选择保留数据，或删除安装时配置的全部自定义目录。建议升级或重装前先保留重要数据备份。
+
+### 方式二：一键部署脚本（推荐二）
 
 复制命令即可一键部署
 
@@ -33,7 +45,7 @@
 if [ -f /usr/bin/curl ]; then curl -sSO https://raw.githubusercontent.com/Double-Stack-Workshop/Compose-File/main/Scripts/install.sh; else wget -O install.sh https://raw.githubusercontent.com/Double-Stack-Workshop/Compose-File/main/Scripts/install.sh; fi && bash install.sh && rm -f install.sh
 ```
 
-### 方式二：Compose 部署（推荐二）
+### 方式三：Compose 部署
 
 ```bash
 # 1. 克隆项目
@@ -47,7 +59,7 @@ docker compose up -d
 # 打开浏览器访问：http://localhost:8000
 ```
 
-### 方式三：Docker Run 部署
+### 方式四：Docker Run 部署
 
 ```bash
 # 创建必要目录
@@ -71,7 +83,7 @@ docker run -d \
   -e PYTHONUNBUFFERED=1 \
   --privileged \
   --restart unless-stopped \
-  lastthree/doublestack-shop:v2.1.3
+  lastthree/doublestack-shop:v2.1.4
 
 # 访问应用
 # 打开浏览器访问：http://localhost:8000
@@ -159,6 +171,7 @@ doublestack-shop/
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| v2.1.4 | 2026-09-01 | 修复多服务 Compose 在简易模式下端口字段使用相同序号而相互覆盖的问题，端口参数改为按“服务名称 + 端口序号”独立绑定，同一文件中的多个服务和多个端口可分别显示、修改与保存。 |
 | v2.1.3 | 2026-09-01 | 新增“本地仓库”，Compose 文件持久化到 `repos/local`，支持新建、重命名、编辑和直接部署；修复连续创建文件后列表丢失、仓库选择状态及部署卡片显示问题；新增独立的 OpenAI 兼容接口配置与 AI 对话页面，支持完整上下文、全量回复、思考过程折叠、代码块复制、聊天记录持久化和历史对话切换；新增全局悬浮 AI 对话窗口，并统一桌面端、侧边栏和仪表盘入口；从系统设置中拆分独立用户管理页面，管理员可创建用户、修改自身或普通用户的用户名和密码、删除普通用户；支持头像上传及默认公共头像，新增最后登录时间记录；仓库管理支持删除仓库记录；系统设置配置卡片支持默认收起和按需展开；修复 IPv4/IPv6 导致端口映射重复的问题，支持多端口展示；配置全局域名或 IP 后，为每个 TCP 映射生成独立访问入口。 |
 | v2.1.2 | 2026-08-30 | 初始 `admin` 账号首次登录强制修改密码，改密前限制业务 API、终端及注册与密码重置授权；改密后撤销全部旧会话并要求重新登录；兼容旧版账号迁移，已有 `admin` 管理员升级后需更新一次密码；管理员密码校验实时读取数据库，避免旧密码缓存继续生效；修复忘记密码页面误报成功。 |
 | v2.1.1 | 2026-08-29 | 新增局域网 Apprise API 通知：支持 `/notify` 与完整通知端点、测试通知，并可选择部署、仓库、镜像、备份和 Docker 重启通知；仓库与推荐容器仅以 JSON 为唯一初始化来源，移除旧数据库及初始化入口；首次启动自动将镜像内置 JSON 写入空的运行时数据目录；仓库同步时间改为记录并持久化真实 UTC+8 完成时间，重启后仍可正确显示；统一认证页面 API 配置。 |
